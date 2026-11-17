@@ -18,6 +18,8 @@ const fs = require('fs');
   eq('modal shown', $('brokeModal').classList.contains('show'), true);
   eq('gift block visible', $('giftBlock').style.display !== 'none', true);
   eq('loan block hidden', $('loanBlock').style.display, 'none');
+  eq('gift modal has no dismiss button (forced claim)', $('giftBlock').querySelector('.modalLater'), null);
+  eq('loan modal keeps its dismiss button', !!$('loanBlock').querySelector('.modalLater'), true);
   $('claimGiftBtn').click();
   eq('gift +500', L.get().playerStack, 505);
   eq('rescues marked used', L.get().loan.rescues, 1);
