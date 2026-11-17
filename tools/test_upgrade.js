@@ -64,6 +64,24 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   eq('stacks reset to 1000', w.__loan.get().playerStack, 1000);
   eq('props refilled after reset', w.__loan.get().meta.propInv.peek, 1);
 
+  // blinds are per-match now: the reset above zeroed the match hand counter
+  eq('matchHands reset to 0', w.__loan.get().meta.matchHands, 0);
+
+  // settlement display must match the real (global) stacks, interest included
+  doc.querySelector('.loanB[data-amt="500"]').click();
+  eq('borrowed 500 for the display test', w.__loan.get().loan.p, 500);
+  $('nextBtn').click();
+  await sleep(1600);
+  for (let i = 0; i < 30; i++) {
+    if ($('nextBtn').style.display !== 'none') break;
+    $('callBtn').click();
+    await sleep(750);
+  }
+  ok('hand finished for display test', $('nextBtn').style.display !== 'none');
+  eq('displayed player stack == real stack after interest', $('playerStack').textContent, String(w.__loan.get().playerStack));
+  eq('displayed bot stack == real stack', $('botStack').textContent, String(w.__loan.get().botStack));
+  eq('matchHands counted the hand', w.__loan.get().meta.matchHands, 1);
+
   // save export / import
   ok('save IO hook exists', !!w.__saveIO);
   const exported = w.__saveIO.exportSaveData();
@@ -71,6 +89,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   eq('import rejects garbage', w.__saveIO.importSaveData('not json'), false);
   eq('import rejects wrong shape', w.__saveIO.importSaveData('{"a":1}'), false);
   eq('import accepts a valid save', w.__saveIO.importSaveData(exported), true);
+  eq('import sanitizes a malformed-but-shaped save', w.__saveIO.importSaveData('{"stats":{"games":"x","wins":3},"meta":{}}'), true);
+  const stored = JSON.parse(w.localStorage.getItem('monadpoker_save'));
+  eq('sanitized games is a number', typeof stored.stats.games, 'number');
+  ok('sanitized meta.quests is an array', Array.isArray(stored.meta.quests));
+  ok('sanitized meta.propInv complete', !!stored.meta.propInv && typeof stored.meta.propInv.peek === 'number');
+  w.__saveIO.importSaveData(exported); // restore the real save
 
   console.log(fails === 0 ? 'UPGRADE TEST PASS' : ('FAILURES: ' + fails));
   process.exit(fails ? 1 : 0);

@@ -93,20 +93,51 @@ function estimateEquity(hole, community, rng, iterations) {
 }
 
 // ---------- 机器人 AI ----------
-function botStrength(botHole, community, rng) {
-  if (community.length >= 3) {
-    const s = evaluateBest(botHole.concat(community));
-    let v = s[0] / 8 + (s[1] || 0) / 200;
-    // 有听牌潜力给一点加分（4 张同花 / 4 张连张粗略判断）
-    return Math.min(1, v + rng() * 0.05);
-  }
-  const [a, b] = botHole.map(c => c.r).sort((x, y) => y - x);
+// 起手牌强度（0..1）：给范围采样当先验——对子/同花/连张/高牌
+function preflopScore(hole) {
+  const [a, b] = hole.map(c => c.r).sort((x, y) => y - x);
   let v;
   if (a === b) v = 0.45 + (a / 14) * 0.4;                    // 口袋对
   else v = (a / 14) * 0.38 + (b / 14) * 0.14;                // 高牌
-  if (botHole[0].s === botHole[1].s) v += 0.05;              // 同花
+  if (hole[0].s === hole[1].s) v += 0.05;                    // 同花
   if (Math.abs(a - b) === 1) v += 0.04;                      // 连张
   return Math.min(1, v);
+}
+// 范围加权胜率：对手手牌不再是纯随机，而是按他的行动范围采样。
+// range.minScore：候选手牌起手分低于它时，只以 range.bluff 的概率被接受（留诈唬份额）；
+// 玩家加注越凶，范围越紧，机器人算出的胜率自然越低——不用再靠拍脑袋打折。
+function estimateEquityVsRange(hole, community, rng, iterations, range) {
+  const iters = iterations || 300;
+  const used = new Set();
+  hole.concat(community || []).forEach(c => used.add(c.s * 100 + c.r));
+  const rest = createDeck().filter(c => !used.has(c.s * 100 + c.r));
+  const minScore = range && typeof range.minScore === 'number' ? range.minScore : 0;
+  const bluff = range && typeof range.bluff === 'number' ? range.bluff : 0.15;
+  let score = 0;
+  for (let i = 0; i < iters; i++) {
+    const d = rest.slice();
+    const need = 2 + (5 - (community ? community.length : 0));
+    for (let k = 0; k < need; k++) {
+      const j = k + Math.floor(rng() * (d.length - k));
+      [d[k], d[j]] = [d[j], d[k]];
+    }
+    let oppHole = [d[0], d[1]];
+    if (minScore > 0) {
+      let tries = 0;
+      while (preflopScore(oppHole) < minScore && rng() >= bluff && tries < 30) {
+        const j1 = 2 + Math.floor(rng() * (d.length - 2)); [d[0], d[j1]] = [d[j1], d[0]];
+        const j2 = 3 + Math.floor(rng() * (d.length - 3)); [d[1], d[j2]] = [d[j2], d[1]];
+        oppHole = [d[0], d[1]];
+        tries++;
+      }
+    }
+    const board = (community || []).concat(d.slice(2, need));
+    const ps = evaluateBest(hole.concat(board));
+    const bs = evaluateBest(oppHole.concat(board));
+    const cmp = compareScore(ps, bs);
+    score += cmp > 0 ? 1 : cmp === 0 ? 0.5 : 0;
+  }
+  return score / iters;
 }
 // 返回 'fold' | 'call' | 'raise'（call 在 toCall=0 时即让牌）
 // strength 是胜率估算（对随机手牌的蒙特卡洛胜率）；面对跟注时按底池赔率算账：
@@ -163,6 +194,7 @@ class PokerHand {
     this._acted = { player: false, bot: false };
     this.botRaisedThisHand = false;
     this.playerRaisedThisHand = false;
+    this.playerRaises = 0;
     this.lastBotAction = null; this.lastBotRaiseBy = 0; this.result = null; this.swapped = false;
     const other = this.dealer === 'player' ? 'bot' : 'player';
     this._contribute(this.dealer, this.sb); this._contribute(other, this.bb);
@@ -209,7 +241,7 @@ class PokerHand {
         if (by >= this.lastRaiseBy) this.lastRaiseBy = by;
         this.raisesThisStreet++;
         this._acted[side] = true; this._acted[other] = false;
-        if (side === 'player') { this.playerRaisedThisHand = true; this.playerRaisedThisStreet = true; } else { this.botRaisedThisHand = true; this.lastBotRaiseBy = by; }
+        if (side === 'player') { this.playerRaisedThisHand = true; this.playerRaisedThisStreet = true; this.playerRaises++; } else { this.botRaisedThisHand = true; this.lastBotRaiseBy = by; }
       }
     } else { // call / check
       this._contribute(side, tc);
@@ -242,9 +274,12 @@ class PokerHand {
   _botAct() {
     if (this.phase === 'over' || this.turn !== 'bot') return;
     const tc = this._toCallFor('bot');
-    // 真胜率：蒙特卡洛模拟对随机手牌的胜率（模拟噪声本身也让它的判断不那么可预测）
-    let s = estimateEquity(this.botHole, this.community, this.rng, this.community.length >= 3 ? 200 : 120);
-    if (this.playerRaisedThisStreet) s -= 0.04; // 对手这条街加注过，范围更强，胜率打折
+    // 真胜率：按对手行动范围加权的蒙特卡洛胜率——玩家加注越凶，假定的对手范围越紧
+    let range = { minScore: 0, bluff: 1 };
+    if (this.playerRaises >= 2) range = { minScore: 0.52, bluff: 0.10 };
+    else if (this.playerRaisedThisStreet) range = { minScore: 0.42, bluff: 0.15 };
+    else if (this.playerRaises === 1) range = { minScore: 0.34, bluff: 0.20 };
+    let s = estimateEquityVsRange(this.botHole, this.community, this.rng, this.community.length >= 3 ? 300 : 150, range);
     s = Math.max(0, Math.min(1, s + (this.rng() - 0.5) * 0.04));
     let d = botDecide(s, tc, this.pot, this.rng, this.botAggro);
     if (d === 'raise') {
@@ -299,6 +334,6 @@ class PokerHand {
   }
 }
 
-const PokerEngine = { createDeck, shuffle, evaluate5, evaluateBest, compareScore, handName, estimateEquity, botStrength, botDecide, botRaiseBy, PokerHand, HAND_NAMES, MAX_RAISES_PER_STREET };
+const PokerEngine = { createDeck, shuffle, evaluate5, evaluateBest, compareScore, handName, estimateEquity, estimateEquityVsRange, preflopScore, botDecide, botRaiseBy, PokerHand, HAND_NAMES, MAX_RAISES_PER_STREET };
 if (typeof module !== 'undefined' && module.exports) module.exports = PokerEngine;
 if (typeof window !== 'undefined') window.PokerEngine = PokerEngine;

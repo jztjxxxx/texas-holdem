@@ -127,6 +127,16 @@ for (let i = 0; i < 300; i++) {
   eq('medium checks when free', E.botDecide(0.50, 0, 300, rng99, 0), 'call');
   eq('strong opens with a raise', E.botDecide(0.70, 0, 300, rng99, 0), 'raise');
 }
+// --- range-weighted equity (bot AI v2.1) ---
+{
+  eq('preflopScore: AA > 72o', E.preflopScore([{ r: 14, s: 0 }, { r: 14, s: 1 }]) > E.preflopScore([{ r: 7, s: 0 }, { r: 2, s: 1 }]), true);
+  const junk = [{ r: 7, s: 0 }, { r: 2, s: 1 }];
+  const vsRandom = E.estimateEquityVsRange(junk, [], mulberry32(7), 600, { minScore: 0, bluff: 1 });
+  const vsTight = E.estimateEquityVsRange(junk, [], mulberry32(7), 600, { minScore: 0.52, bluff: 0.10 });
+  eq('junk hand equity drops vs a tight range', vsTight < vsRandom - 0.03, true);
+  const aaTight = E.estimateEquityVsRange([{ r: 14, s: 0 }, { r: 14, s: 1 }], [], mulberry32(7), 600, { minScore: 0.52, bluff: 0.10 });
+  eq('AA stays strong vs a tight range', aaTight > 0.55, true);
+}
 console.log('simulated hands:', hands, 'errors:', errors);
 if (errors) fails++;
 console.log(fails === 0 ? 'ALL ENGINE TESTS PASS' : ('FAILURES: ' + fails));
