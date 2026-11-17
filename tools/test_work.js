@@ -1,4 +1,5 @@
-// Work-off-debt tests: shout "可恶 赔惨了" x3 -> bot confirms -> debt zeroed, kicked off the table.
+// Third-modal flow: gift used + debt maxed + no chips -> gate modal (only work button)
+// -> shout "可恶 赔惨了" x3 -> bot confirms -> debt zeroed, kicked off the table.
 const { JSDOM } = require('jsdom');
 const fs = require('fs');
 (async () => {
@@ -11,30 +12,38 @@ const fs = require('fs');
   const eq = (name, got, want) => { const ok = got === want; console.log(ok ? 'ok  ' : 'FAIL', name, 'got', got, 'want', want); if (!ok) fails++; };
   const L = window.__loan;
 
-  eq('work button disabled without debt', $('workBtn').disabled, true);
-  L.borrow(2000);
-  eq('debt in place', L.get().loan.p, 2000);
-  eq('work button enabled with debt', $('workBtn').disabled, false);
+  eq('no stray panel work button', $('workBtn'), null);
+  eq('no work entry in loan modal', $('workFromModalBtn'), null);
 
-  $('workBtn').click();
-  eq('work modal shown', $('workModal').classList.contains('show'), true);
-  eq('debt shown in modal', $('workDebt').textContent, '2000');
+  // Stage-3 state: gift already used, debt at cap, chips gone
+  L.borrow(20000);
+  eq('debt at cap', L.get().loan.p, 20000);
+  L.get().loan.rescues = 1;
+  window.eval('playerStack = 5');
+  $('nextBtn').click();
+  await new Promise(r => setTimeout(r, 150));
+  eq('gate modal (3rd) shown', $('workGateModal').classList.contains('show'), true);
+  eq('broke modal NOT shown', $('brokeModal').classList.contains('show'), false);
+  eq('gate shows the debt', $('gateDebt').textContent, '20000');
+  eq('gate has exactly one button', $('workGateModal').querySelectorAll('button').length, 1);
+
+  $('gateWorkBtn').click();
+  eq('gate closed', $('workGateModal').classList.contains('show'), false);
+  eq('shout modal shown', $('workModal').classList.contains('show'), true);
   eq('phrase shown', $('shoutText').textContent.includes('可恶 赔惨了'), true);
 
   $('shoutBtn').click(); $('shoutBtn').click();
   eq('count after 2 shouts', $('shoutCount').textContent, '已喊 2 / 3 遍');
   eq('bot not confirmed yet', $('botConfirm').style.display, 'none');
   $('shoutBtn').click();
-  eq('count after 3 shouts', $('shoutCount').textContent, '已喊 3 / 3 遍');
-  eq('bot confirm appears', $('botConfirm').style.display !== 'none', true);
-  eq('shout button disabled after 3', $('shoutBtn').disabled, true);
+  eq('bot confirm appears at 3', $('botConfirm').style.display !== 'none', true);
 
   $('botConfirmBtn').click();
   eq('debt zeroed', L.get().loan.p, 0);
   eq('player kicked: stack reset', L.get().playerStack, 1000);
   eq('bot stack reset too', L.get().botStack, 1000);
   eq('work count recorded', L.get().meta.workCount, 1);
-  eq('modal closed', $('workModal').classList.contains('show'), false);
+  eq('shout modal closed', $('workModal').classList.contains('show'), false);
 
   console.log(fails === 0 ? 'WORK TEST PASS' : ('WORK FAILURES: ' + fails));
   process.exit(fails ? 1 : 0);
