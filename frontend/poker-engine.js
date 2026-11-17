@@ -134,7 +134,7 @@ class PokerHand {
     this.playerHole[1] = this._deck[this._next++];
     this.swapped = true; return true;
   }
-  playerAct(action) {
+  playerAct(action, raiseBy) {
     if (this.phase === 'over') return;
     if (action === 'fold') return this._endByFold('bot');
     if (this.phase === 'respond') {
@@ -143,15 +143,20 @@ class PokerHand {
       return;
     }
     if (action === 'raise') {
+      const maxBy = this.playerStack - this.toCall();
+      if (maxBy <= 0) return;
+      let by = (typeof raiseBy === 'number' && isFinite(raiseBy)) ? Math.floor(raiseBy) : this.raiseSize;
+      by = Math.max(10, Math.min(by, maxBy));
       this.playerRaisedThisHand = true;
       this._contribute('player', this.toCall());
-      this._contribute('player', this.raiseSize);
+      this._contribute('player', by);
       // 机器人对加注只回应一次：弃 / 跟（不反加，简化规则）
       const s = botStrength(this.botHole, this.community, this.rng);
       const d = botDecide(s, this.playerBet - this.botBet, this.pot, this.rng);
       if (d === 'fold') { this.lastBotAction = 'fold'; return this._endByFold('player'); }
       this.lastBotAction = 'call';
       this._contribute('bot', this.playerBet - this.botBet);
+      if (this.playerStack === 0 || this.botStack === 0) return this._runOut();
       return this._advanceStreet();
     }
     if (action === 'call' || action === 'check') {

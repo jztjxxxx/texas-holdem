@@ -42,6 +42,25 @@ for (let i = 0; i < 300; i++) {
   if (h.playerStack < 0 || h.botStack < 0) { errors++; console.log('FAIL negative stack', i); }
   pStack = h.playerStack; bStack = h.botStack; hands++;
 }
+
+// --- variable raise amounts (chip-picker feature) ---
+{
+  const h1 = new E.PokerHand({ playerStack: 1000, botStack: 1000, rng: mulberry32(7) });
+  h1.playerAct('raise', 200);
+  eq('raise 200: player contrib = 10 SB + 10 call + 200', h1.playerContrib, 220);
+  eq('raise 200: chip conservation', h1.totalChips(), 2000);
+  const h2 = new E.PokerHand({ playerStack: 300, botStack: 1000, rng: mulberry32(8) });
+  h2.playerAct('raise', 99999);
+  eq('oversized raise clamps to all-in', h2.playerStack, 0);
+  eq('all-in raise: chip conservation', h2.totalChips(), 1300);
+  const h3 = new E.PokerHand({ playerStack: 1000, botStack: 1000, rng: mulberry32(9) });
+  h3.playerAct('raise', 1);
+  eq('tiny raise clamps to min 10', h3.playerContrib, 30);
+  const h4 = new E.PokerHand({ playerStack: 1000, botStack: 1000, rng: mulberry32(10) });
+  h4.playerAct('raise');
+  eq('no amount = default 40 raise', h4.playerContrib, 60);
+}
+
 console.log('simulated hands:', hands, 'errors:', errors);
 if (errors) fails++;
 console.log(fails === 0 ? 'ALL ENGINE TESTS PASS' : ('FAILURES: ' + fails));

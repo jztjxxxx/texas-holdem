@@ -50,6 +50,14 @@ a { color: #34d399;}
 .deck { text-align: center; font-size: 13px; color: #d9ffe9; margin-top: 9px; opacity: .9; letter-spacing: 3px; }
 .deck.dealing { animation: deckShake .22s ease-in-out infinite alternate; }
 @keyframes deckShake { from { transform: rotate(-2.5deg); } to { transform: rotate(2.5deg) translateY(-2px); } }
+.chips { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+.chip { width: 56px; height: 56px; border-radius: 50%; border: 4px dashed rgba(255,255,255,.85); color: #fff; font-weight: 800; font-size: 15px; cursor: pointer; box-shadow: 0 3px 8px rgba(0,0,0,.4), inset 0 0 0 3px rgba(0,0,0,.18); transition: transform .08s ease; padding: 0; }
+.chip:active { transform: scale(.9) translateY(2px); }
+.chip.c10 { background: #3b82c4; } .chip.c25 { background: #2e9e5b; } .chip.c50 { background: #d64545; }
+.chip.c100 { background: #22252a; } .chip.c250 { background: #7d4fc9; }
+.chip.callin { background: radial-gradient(circle at 35% 35%, #ffe27a, #b8860b); color: #4a3200; font-size: 14px; }
+.chip.clear { background: #5a6268; font-size: 13px; }
+.raiseInfo { text-align: center; color: #ffe9a8; font-size: 14px; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -77,6 +85,18 @@ a { color: #34d399;}
 <button id="raiseBtn" class="gold">加注 +40</button>
 <button id="nextBtn" style="display:none">下一手</button>
 <button id="resetBtn" class="ghost">重开整场（筹码回 1000）</button>
+</div>
+<div id="chipRack" style="display:none">
+<div class="chips">
+<button class="chip c10" data-amt="10">10</button>
+<button class="chip c25" data-amt="25">25</button>
+<button class="chip c50" data-amt="50">50</button>
+<button class="chip c100" data-amt="100">100</button>
+<button class="chip c250" data-amt="250">250</button>
+<button class="chip callin" id="chipAllIn">全下</button>
+<button class="chip clear" id="chipClear">重置</button>
+</div>
+<div class="raiseInfo">已选加注：+<span id="raiseAmtVal">40</span> · 点圆筹码往上加，攒好按“加注”按钮打出去</div>
 </div>
 <div class="prop" style="margin-top:13px">
 <span class="icon" id="propIcon">🎴</span>
@@ -160,6 +180,7 @@ function persist() { store.set('monadpoker_save', JSON.stringify({ stats, streak
 let playerStack = 1000, botStack = 1000;
 let hand = null, prop = null, propUsed = false, peekOn = false, settled = false, playerWentAllIn = false;
 let dealing = false, dealStep = 0, dealTimer = null, animLock = false, flipFrom = 99, revealFlip = false;
+let raiseAmt = 40;
 
 function cardHtml(c, faceDown, cls) {
 if (faceDown) return '<div class="card back' + (cls ? ' ' + cls : '') + '">?</div>';
@@ -209,6 +230,14 @@ $('foldBtn').disabled = animLock || dealing;
 $('callBtn').disabled = animLock || dealing;
 $('raiseBtn').textContent = hand.playerStack <= tc + hand.raiseSize? '全下！': '加注 +40';
 }
+const maxBy = inHand ? hand.playerStack - hand.toCall() : 0;
+const canRaise = !!(inHand && hand.phase === 'player' && maxBy >= 10);
+$('chipRack').style.display = canRaise ? '' : 'none';
+if (canRaise) {
+raiseAmt = Math.max(10, Math.min(raiseAmt, maxBy));
+$('raiseAmtVal').textContent = raiseAmt;
+$('raiseBtn').textContent = raiseAmt >= maxBy ? '全下 +' + raiseAmt + '！' : '加注 +' + raiseAmt;
+}
 $('propBtn').disabled = !(inHand && prop && !propUsed) || animLock || dealing;
 $('statGames').textContent = stats.games;
 $('statWins').textContent = stats.wins;
@@ -237,6 +266,7 @@ $('propDesc').textContent = '道具卡：' + prop.desc + '（每手限用一次�
 $('propBtn').textContent = '使用道具';
 talk(pick(TALK.deal));
 log('第 ' + (stats.games + 1) + ' 手。你是小盲 10，机器人大盲 20，跟注 10 开始。抽到的道具卡：' + prop.name + '。荷官发牌中…');
+raiseAmt = 40;
 dealing = true; dealStep = 0; flipFrom = 99; revealFlip = false;
 if (dealTimer) clearInterval(dealTimer);
 render();
@@ -311,7 +341,9 @@ render();
 function act(a) {
 if (!hand || hand.phase === 'over' || dealing || animLock) return;
 const prevComm = hand.community.length;
-hand.playerAct(a);
+const prevStreet = hand.street;
+hand.playerAct(a, a === 'raise' ? raiseAmt : undefined);
+if (hand.street !== prevStreet) raiseAmt = 40;
 if (hand.community.length > prevComm) {
 flipFrom = prevComm; blip(680); animLock = true;
 setTimeout(() => { flipFrom = 99; animLock = false; render(); }, 640);
@@ -326,6 +358,24 @@ afterAction();
 $('foldBtn').addEventListener('click', () => act('fold'));
 $('callBtn').addEventListener('click', () => act('call'));
 $('raiseBtn').addEventListener('click', () => act('raise'));
+document.querySelectorAll('.chip[data-amt]').forEach(ch => ch.addEventListener('click', () => {
+if (!hand || hand.phase !== 'player' || dealing || animLock) return;
+const maxBy = hand.playerStack - hand.toCall();
+if (maxBy < 10) return;
+raiseAmt = Math.min(raiseAmt + parseInt(ch.dataset.amt, 10), maxBy);
+blip(760); render();
+}));
+$('chipAllIn').addEventListener('click', () => {
+if (!hand || hand.phase !== 'player' || dealing || animLock) return;
+const maxBy = hand.playerStack - hand.toCall();
+if (maxBy < 10) return;
+raiseAmt = maxBy; blip(900); render();
+});
+$('chipClear').addEventListener('click', () => {
+if (!hand || dealing || animLock) return;
+const maxBy = hand.playerStack - hand.toCall();
+raiseAmt = Math.max(10, Math.min(40, maxBy)); blip(500); render();
+});
 $('nextBtn').addEventListener('click', newHand);
 $('resetBtn').addEventListener('click', () => { if (dealTimer) { clearInterval(dealTimer); dealTimer = null; } dealing = false; animLock = false; flipFrom = 99; revealFlip = false; playerStack = 1000; botStack = 1000; hand = null; log('已重开整场，双方筹码回 1000。战绩和成就保留。'); render();});
 $('propBtn').addEventListener('click', () => {
