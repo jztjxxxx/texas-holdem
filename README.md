@@ -2,7 +2,6 @@
 
 **▶ Play it now in your browser / 点开就能玩：https://jztjxxxx.github.io/texas-holdem/**
 
-单挑机器人德州扑克，为 2026-11-21 Monad Blitz @广州 准备的备用项目。
 对局在前端跟机器人打，完整可玩；配套一个极简 Solidity 合约，把战绩存到 Monad 测试网上。
 
 ## 怎么玩
