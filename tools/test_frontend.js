@@ -15,13 +15,16 @@ const { JSDOM } = require('jsdom');
   console.log('prop shown:', $('propDesc').textContent.includes('道具卡'));
   // Use the prop (whatever it is) to exercise that path
   await new Promise(r => setTimeout(r, 1600));
-  if (!$('propCard').className.includes('disabled')) {
-    $('propCard').click();
+  const pc0 = doc.querySelector('#propHand .propCard');
+  if (pc0 && !pc0.className.includes('disabled')) {
+    pc0.click();
     await new Promise(r => setTimeout(r, 120));
     const flyingSeen = !!doc.querySelector('.propCard.flying');
+    const flyEl = doc.querySelector('.propCard.flying');
+    console.log('flying card height locked:', flyEl ? (flyEl.style.height !== '' && flyEl.style.bottom === 'auto') : 'n/a');
     await new Promise(r => setTimeout(r, 1300));
-    console.log('prop card played, flying seen:', flyingSeen, '| card used:', $('propCard').className.includes('used'), '| stamp:', $('propStamp').style.display !== 'none');
-    if (!flyingSeen || !$('propCard').className.includes('used')) { console.log('FRONTEND TEST FAIL (prop card)'); process.exit(1); }
+    console.log('prop card played, flying seen:', flyingSeen, '| card consumed:', pc0.className.includes('gone'));
+    if (!flyingSeen || !pc0.className.includes('gone')) { console.log('FRONTEND TEST FAIL (prop card)'); process.exit(1); }
   }
   let steps = 0, ended = false;
   while (steps++ < 160) {

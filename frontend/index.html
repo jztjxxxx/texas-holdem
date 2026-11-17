@@ -97,6 +97,9 @@ a { color: #34d399;}
 .chip:active { transform: scale(.9) translateY(2px); }
 .chip.c10 { background: #3b82c4; } .chip.c25 { background: #2e9e5b; } .chip.c50 { background: #d64545; }
 .chip.c100 { background: #22252a; } .chip.c250 { background: #7d4fc9; }
+.chip.c1000 { background: #d4a017; color: #3a2a00; }
+.chip.c5000 { background: #8e2434; }
+.chip.plaque { width: 94px; height: 56px; border-radius: 12px; border: 3px solid #ffd95e; background: linear-gradient(160deg, #2b2e34, #0f1113); color: #ffd95e; font-size: 16px; letter-spacing: .5px; }
 .chip.callin { background: radial-gradient(circle at 35% 35%, #ffe27a, #b8860b); color: #4a3200; font-size: 14px; }
 .chip.clear { background: #5a6268; font-size: 13px; }
 .raiseInfo { text-align: center; color: #ffe9a8; font-size: 14px; margin-top: 8px; }
@@ -113,6 +116,8 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 .pchip { width: 42px; height: 42px; border-radius: 50%; border: 3px dashed rgba(255,255,255,.85); color: #fff; font-weight: 800; font-size: 12.5px; display: grid; place-items: center; box-shadow: 0 3px 7px rgba(0,0,0,.45), inset 0 0 0 2px rgba(0,0,0,.18); animation: chipDrop .45s cubic-bezier(.25,.8,.35,1.15); flex-shrink: 0; }
 .pchip.c10 { background: #3b82c4; } .pchip.c25 { background: #2e9e5b; } .pchip.c50 { background: #d64545; }
 .pchip.c100 { background: #22252a; } .pchip.c250 { background: #7d4fc9; } .pchip.cX { background: #8a6d3b; }
+.pchip.c1000 { background: #d4a017; color: #3a2a00; } .pchip.c5000 { background: #8e2434; }
+.pchip.c10000 { width: 60px; height: 40px; border-radius: 7px; border: 2.5px solid #ffd95e; background: linear-gradient(160deg, #2b2e34, #0f1113); color: #ffd95e; font-size: 12px; }
 @keyframes chipDrop { 0% { transform: translateY(-66px) rotate(var(--r, 0deg)); opacity: 0; } 65% { transform: translateY(5px) rotate(var(--r, 0deg)); opacity: 1; } 100% { transform: translateY(0) rotate(var(--r, 0deg)); opacity: 1; } }
 #betPile.collect .pchip { transition: transform .35s ease, opacity .35s ease; transform: translateY(-48px) scale(.55) !important; opacity: 0; }
 .xpbar { height: 9px; background: #0a1a12; border-radius: 99px; overflow: hidden; margin-top: 9px; }
@@ -145,9 +150,16 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 .modalCard p { color: #c9f2da; font-size: 14px; line-height: 1.65; margin: 6px 0; }
 .modalCard input[type=range] { width: 100%; accent-color: #ffd95e; margin: 10px 0 2px; }
 .modalCard .big { font-size: 26px; font-weight: 800; color: #ffd95e; }
-.table .propCard { position: absolute; left: 18px; bottom: 12px; width: 104px; transform: rotate(-6deg); z-index: 6; touch-action: none; }
-.table .propCard:hover { transform: rotate(-6deg) translateY(-4px); }
-.table .propCard.dragging { transition: none; z-index: 40; }
+#propHand { position: absolute; left: 14px; bottom: 10px; display: flex; gap: 6px; z-index: 6; }
+#propHand .propCard { position: relative; width: 78px; padding: 5px 5px 6px; touch-action: none; }
+#propHand .propCard .art { font-size: 24px; padding: 5px 0 3px; }
+#propHand .propCard .pname { font-size: 11.5px; margin-top: 3px; }
+#propHand .propCard .pdesc { font-size: 9.5px; min-height: 26px; line-height: 1.35; margin-top: 2px; }
+#propHand .propCard:nth-child(odd) { transform: rotate(-3deg); }
+#propHand .propCard:nth-child(even) { transform: rotate(2.5deg); }
+#propHand .propCard:hover { transform: translateY(-5px) rotate(0deg); }
+#propHand .propCard.dragging { transition: none; z-index: 40; }
+#propHand .propCard.gone { display: none; }
 #betZone.dropHot { border-color: #ffd95e; background: rgba(255,217,94,.10); }
 #community.dropHot { outline: 2px dashed #ffd95e; outline-offset: 4px; border-radius: 12px; }
 .hint .log { max-height: 330px; overflow-y: auto; margin-top: 6px; }
@@ -156,7 +168,7 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 <body>
 <div class="wrap">
 <h1>🃏 德州扑克 <span id="streakFlame" style="font-size:19px"></span></h1>
-<p class="sub">单挑机器人版 · 备用项目。每人 1000 筹码，盲注 10/20。每手随机一张道具卡，赢了攒成就，战绩还能上链存证。</p>
+<p class="sub">单挑机器人版 · 备用项目。每人 1000 筹码，盲注 10/20。开局送全套四张道具卡（用完就没了），赢了攒成就，战绩还能上链存证。</p>
 
 <div id="banner" class="banner"></div>
 
@@ -171,12 +183,7 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 <div id="betZone"><div class="betLabel">🎯 你的下注区 · 点的筹码会掉落在这里</div><div id="betPile"></div></div>
 <div class="cards" id="playerCards" style="margin-top:8px"></div>
 <div class="who">🧑 <b>你</b> · 筹码 <b id="playerStack">1000</b> · 本手已投入 <b id="playerContrib">0</b><span id="playerDebt" style="color:#ff9d9d"></span><span id="playerHandName" style="color:#ffd95e"></span></div>
-<div id="propCard" class="propCard disabled">
-<div class="art" id="propIcon">🎴</div>
-<div class="pname" id="propName">道具卡</div>
-<div class="pdesc" id="propCardDesc">发牌后抽一张</div>
-<div class="stamp" id="propStamp" style="display:none">已打出</div>
-</div>
+<div id="propHand"></div>
 </div>
 <aside class="hint" id="hintPanel"><div class="hintTitle">📢 提示播报</div><div id="hintBody"><div class="hintLine">开始一手后，这里会播报你的牌能凑出什么牌型。</div></div><div class="hintTitle" style="margin-top:16px">📜 牌局日志</div><div class="log" id="log">点“下一手”或直接开始：第一手马上发牌。</div></aside>
 </div>
@@ -191,20 +198,16 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 </div>
 <div id="chipRack" style="display:none">
 <div class="chips">
-<button class="chip c10" data-amt="10">10</button>
-<button class="chip c25" data-amt="25">25</button>
-<button class="chip c50" data-amt="50">50</button>
-<button class="chip c100" data-amt="100">100</button>
-<button class="chip c250" data-amt="250">250</button>
+<span id="chipRow" style="display:contents"></span>
 <button class="chip callin" id="chipAllIn">全下</button>
 <button class="chip clear" id="chipClear">重置</button>
 </div>
-<div class="raiseInfo">已选加注：+<span id="raiseAmtVal">40</span> · 点圆筹码往上加，攒好按“加注”按钮打出去</div>
+<div class="raiseInfo">已选加注：+<span id="raiseAmtVal">40</span> · 点筹码往上加，攒好按“加注”按钮打出去；筹码越多，能用的面额越大</div>
 </div>
 <div class="propArea">
 <div class="propSide">
-<div id="propDesc">道具卡：本手发牌后抽一张。</div>
-<div class="propHint">👆 道具卡就放在牌桌左下角：点它，或者把它拖到奖池 / 下注区松手，都能打出去，每手限用一次。</div>
+<div id="propDesc">道具卡：开局送全套四张，放在牌桌左下角，用完就没了。</div>
+<div class="propHint">👆 点牌桌左下角任意一张道具卡，或把它拖到奖池 / 下注区松手打出；一手里可以连着打好几张，也可以全留着，重开整场会补满全套。</div>
 </div>
 </div>
 </div>
@@ -348,6 +351,8 @@ if (lines.length) persist();
 return { aggro: aggro + (Math.random() * 0.1 - 0.05), lines };
 }
 
+function freshPropInv() { return { peek: 1, swap: 1, double: 1, shield: 1 }; }
+
 // ---------- 持久状态 ----------
 let save = JSON.parse(store.get('monadpoker_save') || '{}');
 let stats = save.stats || { games: 0, wins: 0, best: -1};
@@ -358,13 +363,15 @@ let loan = save.loan || { p: 0, b: 0, bStreak: 0, trait: Math.random() < 0.5 ? '
 loan.rescues = loan.rescues || 0;
 let meta = save.meta || { xp: 0, lastDaily: '', quests: [] };
 while (meta.quests.length < 3) meta.quests.push(newQuest(meta.quests.map(q => q.id)));
+meta.propInv = Object.assign(freshPropInv(), meta.propInv || {});
 function persist() { store.set('monadpoker_save', JSON.stringify({ stats, streak, unlocked: [...unlocked], pending, loan, meta })); }
 
 // ---------- 对局状态 ----------
 let playerStack = 1000, botStack = 1000;
 const todayStr = new Date().toLocaleDateString('en-CA');
 if (meta.lastDaily !== todayStr) { meta.lastDaily = todayStr; playerStack += 200; setTimeout(() => banner('🎁 每日登录奖励 +200 筹码，祝今天手气爆棚！'), 700); persist(); }
-let hand = null, prop = null, propUsed = false, peekOn = false, settled = false, playerWentAllIn = false;
+let hand = null, peekOn = false, settled = false, playerWentAllIn = false;
+let usedThisHand = new Set();
 let dealing = false, dealStep = 0, dealTimer = null, animLock = false, flipFrom = 99, revealFlip = false;
 let peekFlip = false, swapFlip = false;
 let raiseAmt = 40;
@@ -442,7 +449,7 @@ return lines;
 }
 window.__hintFor = hintFor;
 
-const CHIP_CLASS = { 10: 'c10', 25: 'c25', 50: 'c50', 100: 'c100', 250: 'c250' };
+const CHIP_CLASS = { 10: 'c10', 25: 'c25', 50: 'c50', 100: 'c100', 250: 'c250', 1000: 'c1000', 5000: 'c5000', 10000: 'c10000' };
 function dropChip(amt) {
 const pile = $('betPile');
 const el = document.createElement('div');
@@ -460,7 +467,7 @@ else pile.innerHTML = '';
 }
 function pileBreakdown(amount) {
 clearPile(false);
-let rest = amount; const denoms = [250, 100, 50, 25, 10]; let guard = 0;
+let rest = amount; const denoms = [10000, 5000, 1000, 250, 100, 50, 25, 10]; let guard = 0;
 while (rest > 0 && guard++ < 14) { const d = denoms.find(x => x <= rest) || rest; dropChip(d); rest -= d; }
 }
 
@@ -501,6 +508,7 @@ $('foldBtn').disabled = animLock || dealing;
 $('callBtn').disabled = animLock || dealing;
 $('raiseBtn').textContent = hand.playerStack <= tc + hand.raiseSize? '全下！': '加注 +40';
 }
+renderRack();
 const maxBy = inHand ? hand.playerStack - hand.toCall() : 0;
 const canRaise = !!(inHand && hand.phase === 'player' && maxBy >= 10);
 $('chipRack').style.display = canRaise ? '' : 'none';
@@ -509,9 +517,12 @@ raiseAmt = Math.max(10, Math.min(raiseAmt, maxBy));
 $('raiseAmtVal').textContent = raiseAmt;
 $('raiseBtn').textContent = raiseAmt >= maxBy ? '全下 +' + raiseAmt + '！' : '加注 +' + raiseAmt;
 }
-$('propCard').className = 'propCard prop-' + (prop ? prop.id : 'none') + (propUsed ? ' used' : '') + ((!(inHand && prop && !propUsed) || animLock || dealing) ? ' disabled' : '');
-$('propStamp').style.display = propUsed ? '' : 'none';
-$('potToken').textContent = propUsed && prop ? (prop.id === 'double' ? ' · ✖️2 双倍生效中' : prop.id === 'shield' ? ' · 🛡️ 护盾生效中' : '') : '';
+document.querySelectorAll('#propHand .propCard').forEach(el => {
+const pid = el.dataset.pid;
+el.classList.toggle('gone', !(meta.propInv[pid] > 0));
+el.classList.toggle('disabled', !(inHand && meta.propInv[pid] > 0 && !usedThisHand.has(pid)) || animLock || dealing);
+});
+$('potToken').textContent = (usedThisHand.has('double') ? ' · ✖️2 双倍生效中' : '') + (usedThisHand.has('shield') ? ' · 🛡️ 护盾生效中' : '');
 $('statGames').textContent = stats.games;
 $('statWins').textContent = stats.wins;
 $('statStreak').textContent = streak;
@@ -549,14 +560,10 @@ const brain = botBrain();
 if (playerStack < 20) { log('💸 你的筹码不够下盲注了。' + (brain.lines.length ? '\n' + brain.lines.join('\n') : '')); render(); openBrokeModal(); return; }
 if (botStack < 20) { log('机器人借不到钱了（负债到顶），点“重开整场”吧。'); render(); return; }
 hand = new E.PokerHand({ playerStack, botStack, rng: Math.random, botAggro: brain.aggro });
-prop = PROPS[Math.floor(Math.random() * PROPS.length)];
-propUsed = false; peekOn = false; settled = false; playerWentAllIn = false;
-$('propIcon').textContent = prop.icon;
-$('propName').textContent = prop.name;
-$('propCardDesc').textContent = prop.desc;
-$('propDesc').textContent = '道具卡【' + prop.name + '】：' + prop.desc + '。点牌桌左下角的卡，或把它拖到奖池区打出去。';
+usedThisHand = new Set(); peekOn = false; settled = false; playerWentAllIn = false;
+$('propDesc').textContent = '道具卡：牌桌左下角还剩 ' + Object.values(meta.propInv).reduce((a, b) => a + b, 0) + ' 张（开局全套四张，用完就没了），点任意一张或拖到奖池区打出。';
 talk(pick(TALK.deal));
-log('第 ' + (stats.games + 1) + ' 手。你是小盲 10，机器人大盲 20，跟注 10 开始。抽到的道具卡：' + prop.name + '。荷官发牌中…' + (brain.lines.length ? '\n' + brain.lines.join('\n') : ''));
+log('第 ' + (stats.games + 1) + ' 手。你是小盲 10，机器人大盲 20，跟注 10 开始。荷官发牌中…' + (brain.lines.length ? '\n' + brain.lines.join('\n') : ''));
 raiseAmt = 40; clearPile(false);
 dealing = true; dealStep = 0; flipFrom = 99; revealFlip = false;
 if (dealTimer) clearInterval(dealTimer);
@@ -573,11 +580,11 @@ function settleFun() {
 const r = hand.result;
 let p = hand.playerStack, b = hand.botStack;
 const notes = [];
-if (propUsed && prop.id === 'double' && r.winner!== 'tie') {
+if (usedThisHand.has('double') && r.winner !== 'tie') {
 if (r.winner === 'player') { p += r.potWon; notes.push('✖️2 双倍卡生效：庄家奖池额外奖励你 ' + r.potWon + '！');}
 else { b += r.potWon; notes.push('✖️2 双倍卡生效：机器人额外拿走 ' + r.potWon + '，亏大了。');}
 }
-if (propUsed && prop.id === 'shield' && r.winner === 'bot') {
+if (usedThisHand.has('shield') && r.winner === 'bot') {
 const refund = Math.floor(hand.playerContrib / 2);
 p += refund; notes.push('🛡️ 护盾生效：返还你投入的一半 ' + refund + '。');
 }
@@ -599,7 +606,7 @@ if (cat >= 5) banner('🌟 你打出了' + r.playerHand + '！');
 }
 if (stats.games >= 10) unlock('hands10');
 [p, b] = applyInterest(p, b, notes);
-const evs = { hand: 1, win: r.winner === 'player' ? 1 : 0, streak: streak, big: (!r.byFold && r.playerScore && r.playerScore[0] >= 3) ? 1 : 0, bluff: r.playerBluffWin ? 1 : 0, propwin: (propUsed && r.winner === 'player') ? 1 : 0, allinwin: (playerWentAllIn && r.winner === 'player' && !r.byFold) ? 1 : 0 };
+const evs = { hand: 1, win: r.winner === 'player' ? 1 : 0, streak: streak, big: (!r.byFold && r.playerScore && r.playerScore[0] >= 3) ? 1 : 0, bluff: r.playerBluffWin ? 1 : 0, propwin: (usedThisHand.size > 0 && r.winner === 'player') ? 1 : 0, allinwin: (playerWentAllIn && r.winner === 'player' && !r.byFold) ? 1 : 0 };
 meta.quests.forEach(q => { const def = QUEST_DEFS.find(d => d.id === q.id); if (!def) return; if (def.ev === 'streak') q.progress = Math.max(q.progress, evs.streak); else q.progress += evs[def.ev] || 0; });
 for (let i = 0; i < meta.quests.length; i++) { const q = meta.quests[i], def = QUEST_DEFS.find(d => d.id === q.id); if (def && q.progress >= def.target) { p += def.reward; notes.push('🎯 任务完成「' + def.label + '」奖励 +' + def.reward + ' 筹码！'); banner('🎯 任务完成：' + def.label + ' +' + def.reward); meta.quests[i] = newQuest(meta.quests.map(x => x.id)); } }
 const oldLv = levelOf(meta.xp);
@@ -657,9 +664,24 @@ afterAction();
 }
 
 $('foldBtn').addEventListener('click', () => act('fold'));
+const BASE_DENOMS = [10, 25, 50, 100, 250];
+let rackKey = '';
+function availDenoms(stack) { const d = BASE_DENOMS.slice(); if (stack >= 1000) d.push(1000); if (stack >= 5000) d.push(5000); if (stack > 10000) d.push(10000); return d; }
+function renderRack() {
+const stackNow = (hand && hand.phase !== 'over') ? hand.playerStack : playerStack;
+const denoms = availDenoms(stackNow);
+const key = denoms.join(',');
+if (key === rackKey) return;
+rackKey = key;
+$('chipRow').innerHTML = denoms.map(a => a >= 10000
+? '<button class="chip plaque" data-amt="' + a + '">' + a + '</button>'
+: '<button class="chip c' + a + '" data-amt="' + a + '">' + a + '</button>').join('');
+}
 $('callBtn').addEventListener('click', () => act('call'));
 $('raiseBtn').addEventListener('click', () => act('raise'));
-document.querySelectorAll('.chip[data-amt]').forEach(ch => ch.addEventListener('click', () => {
+$('chipRack').addEventListener('click', e => {
+const ch = e.target && e.target.closest ? e.target.closest('.chip[data-amt]') : null;
+if (!ch) return;
 if (!hand || hand.phase !== 'player' || dealing || animLock) return;
 const maxBy = hand.playerStack - hand.toCall();
 if (maxBy < 10) return;
@@ -667,7 +689,7 @@ const beforeAmt = raiseAmt;
 raiseAmt = Math.min(raiseAmt + parseInt(ch.dataset.amt, 10), maxBy);
 if (raiseAmt > beforeAmt) dropChip(raiseAmt - beforeAmt);
 blip(760); render();
-}));
+});
 $('chipAllIn').addEventListener('click', () => {
 if (!hand || hand.phase !== 'player' || dealing || animLock) return;
 const maxBy = hand.playerStack - hand.toCall();
@@ -733,6 +755,7 @@ if (shoutCount >= 3) { $('shoutBtn').disabled = true; $('botConfirm').style.disp
 $('botConfirmBtn').addEventListener('click', () => {
 loan.p = 0;
 meta.workCount = (meta.workCount || 0) + 1;
+meta.propInv = freshPropInv();
 hand = null; playerStack = 1000; botStack = 1000;
 persist(); closeWorkModal();
 banner('🚪 债务清零！你被机器人赶出了牌桌，筹码重置 1000，从头来过。');
@@ -742,16 +765,23 @@ render();
 $('workCancelBtn').addEventListener('click', closeWorkModal);
 $('gateWorkBtn').addEventListener('click', () => { $('workGateModal').classList.remove('show'); openWorkModal(); });
 window.__loan = { borrow, repay, rateFor, applyInterest, levelOf, botBrain, openBrokeModal, closeBrokeModal, openWorkModal, closeWorkModal, get: () => ({ loan, meta, playerStack, botStack }) };
-$('resetBtn').addEventListener('click', () => { if (dealTimer) { clearInterval(dealTimer); dealTimer = null; } dealing = false; animLock = false; flipFrom = 99; revealFlip = false; playerStack = 1000; botStack = 1000; hand = null; loan.p = 0; loan.b = 0; loan.bStreak = 0; persist(); log('已重开整场，双方筹码回 1000，双方债务一笔勾销。战绩、任务和等级保留。'); render();});
-function flyPropCard(done) {
-const card = $('propCard'); const table = document.querySelector('.table');
-const cr = card.getBoundingClientRect(), tr = table.getBoundingClientRect();
-const fly = card.cloneNode(true);
+$('resetBtn').addEventListener('click', () => { if (dealTimer) { clearInterval(dealTimer); dealTimer = null; } dealing = false; animLock = false; flipFrom = 99; revealFlip = false; playerStack = 1000; botStack = 1000; hand = null; loan.p = 0; loan.b = 0; loan.bStreak = 0; meta.propInv = freshPropInv(); persist(); log('已重开整场，双方筹码回 1000，双方债务一笔勾销，道具卡补满全套四张。战绩、任务和等级保留。'); render();});
+function buildPropHand() {
+$('propHand').innerHTML = PROPS.map(d => '<div class="propCard prop-' + d.id + '" data-pid="' + d.id + '"><div class="art">' + d.icon + '</div><div class="pname">' + d.name + '</div><div class="pdesc">' + d.desc + '</div></div>').join('');
+}
+buildPropHand();
+function flyPropCard(cardEl, def, done) {
+const table = document.querySelector('.table');
+const cr = cardEl.getBoundingClientRect(), tr = table.getBoundingClientRect();
+const fly = cardEl.cloneNode(true);
 fly.removeAttribute('id');
-fly.className = 'propCard flying prop-' + prop.id;
+fly.className = 'propCard flying prop-' + def.id;
 fly.style.left = (cr.left - tr.left) + 'px';
 fly.style.top = (cr.top - tr.top) + 'px';
 fly.style.width = cr.width + 'px';
+fly.style.height = cr.height + 'px';
+fly.style.bottom = 'auto';
+fly.style.margin = '0';
 table.appendChild(fly);
 requestAnimationFrame(() => requestAnimationFrame(() => {
 fly.style.left = '50%'; fly.style.top = '46%';
@@ -760,35 +790,45 @@ fly.classList.add('land');
 setTimeout(() => fly.classList.add('burst'), 720);
 setTimeout(() => { fly.remove(); done && done(); }, 1060);
 }
-function applyPropEffect() {
-if (prop.id === 'peek') { peekOn = true; propUsed = true; peekFlip = true; setTimeout(() => { peekFlip = false; }, 900); talk('哼，你都看到我一张牌了，公平呢？'); log('👀 透视眼生效：机器人左边那张底牌已经翻开给你看。');}
-else if (prop.id === 'swap') { if (hand.swapPlayerCard()) { propUsed = true; swapFlip = true; setTimeout(() => { swapFlip = false; }, 900); log('🔄 乾坤大挪移生效：你的第二张底牌已经换掉。');} else { log('这手已经换过了。'); return;}}
-else if (prop.id === 'double') { propUsed = true; log('✖️2 双倍卡已激活：本手赢家额外拿一份等同奖池的奖励。');}
-else if (prop.id === 'shield') { propUsed = true; log('🛡️ 护盾已激活：本手输了返还一半投入。');}
+function applyPropEffect(def) {
+if (def.id === 'peek') { peekOn = true; peekFlip = true; setTimeout(() => { peekFlip = false; }, 900); talk('哼，你都看到我一张牌了，公平呢？'); log('👀 透视眼生效：机器人左边那张底牌已经翻开给你看。'); }
+else if (def.id === 'swap') { if (hand.swapPlayerCard()) { swapFlip = true; setTimeout(() => { swapFlip = false; }, 900); log('🔄 乾坤大挪移生效：你的第二张底牌已经换掉。'); } else { log('这手已经换过了。'); return; } }
+else if (def.id === 'double') { log('✖️2 双倍卡已激活：本手赢家额外拿一份等同奖池的奖励。'); }
+else if (def.id === 'shield') { log('🛡️ 护盾已激活：本手输了返还一半投入。'); }
+usedThisHand.add(def.id);
+meta.propInv[def.id] = Math.max(0, (meta.propInv[def.id] || 0) - 1);
+persist();
 render();
 }
-function playPropCard() {
-if (!hand || hand.phase === 'over' || !prop || propUsed || dealing || animLock) return;
+function playPropCard(def, el) {
+if (!hand || hand.phase === 'over' || !def || !(meta.propInv[def.id] > 0) || usedThisHand.has(def.id) || dealing || animLock) return;
 animLock = true; render();
 blip(880);
-flyPropCard(() => { applyPropEffect(); animLock = false; render(); });
+flyPropCard(el, def, () => { applyPropEffect(def); animLock = false; render(); });
 }
 let propDrag = null, suppressPropClick = false;
-$('propCard').addEventListener('click', () => { if (suppressPropClick) { suppressPropClick = false; return; } playPropCard(); });
+function propElFromEvent(e) { return e.target && e.target.closest ? e.target.closest('#propHand .propCard') : null; }
+function defOfEl(el) { return PROPS.find(d => d.id === el.dataset.pid); }
+$('propHand').addEventListener('click', e => {
+if (suppressPropClick) { suppressPropClick = false; return; }
+const el = propElFromEvent(e);
+if (el) playPropCard(defOfEl(el), el);
+});
 function overDropZone(x, y) {
 return [$('betZone'), $('community')].some(el => { if (!el) return false; const r = el.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; });
 }
-$('propCard').addEventListener('pointerdown', e => {
-if ($('propCard').classList.contains('disabled') || $('propCard').classList.contains('used')) return;
-propDrag = { x: e.clientX, y: e.clientY, moved: false };
-$('propCard').classList.add('dragging');
+$('propHand').addEventListener('pointerdown', e => {
+const el = propElFromEvent(e);
+if (!el || el.classList.contains('disabled') || el.classList.contains('gone')) return;
+propDrag = { x: e.clientX, y: e.clientY, moved: false, el };
+el.classList.add('dragging');
 });
 window.addEventListener('pointermove', e => {
 if (!propDrag) return;
 const dx = e.clientX - propDrag.x, dy = e.clientY - propDrag.y;
 if (Math.abs(dx) + Math.abs(dy) > 6) propDrag.moved = true;
 if (propDrag.moved) {
-$('propCard').style.transform = 'translate(' + dx + 'px,' + dy + 'px) rotate(-2deg) scale(1.06)';
+propDrag.el.style.transform = 'translate(' + dx + 'px,' + dy + 'px) rotate(-2deg) scale(1.06)';
 const hot = overDropZone(e.clientX, e.clientY);
 $('betZone').classList.toggle('dropHot', hot);
 $('community').classList.toggle('dropHot', hot);
@@ -798,14 +838,15 @@ window.addEventListener('pointerup', e => {
 if (!propDrag) return;
 const wasMoved = propDrag.moved;
 const hot = wasMoved && overDropZone(e.clientX, e.clientY);
+const dragEl = propDrag.el;
 propDrag = null;
-$('propCard').classList.remove('dragging');
+dragEl.classList.remove('dragging');
 $('betZone').classList.remove('dropHot');
 $('community').classList.remove('dropHot');
 if (wasMoved) {
 suppressPropClick = true;
-$('propCard').style.transform = '';
-if (hot) playPropCard();
+dragEl.style.transform = '';
+if (hot) playPropCard(defOfEl(dragEl), dragEl);
 }
 });
 
