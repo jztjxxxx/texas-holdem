@@ -27,13 +27,19 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   // touch preview: first tap only previews, second tap plays
   const card = doc.querySelector('#propHand .propCard[data-pid="peek"]');
   ok('peek card present', !!card);
-  const pd = new w.MouseEvent('pointerdown', { bubbles: true }); pd.pointerType = 'touch';
-  card.dispatchEvent(pd);
-  card.click();
+  function touchTap(el, jitter) {
+    const pd = new w.MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 100 }); pd.pointerType = 'touch';
+    el.dispatchEvent(pd);
+    if (jitter) { const pm = new w.MouseEvent('pointermove', { bubbles: true, clientX: 100 + jitter, clientY: 100 }); pm.pointerType = 'touch'; w.dispatchEvent(pm); }
+    const pu = new w.MouseEvent('pointerup', { bubbles: true, clientX: 100 + (jitter || 0), clientY: 100 }); pu.pointerType = 'touch';
+    w.dispatchEvent(pu);
+    el.click(); // browsers fire a trailing click after touch; it must be swallowed
+  }
+  touchTap(card, 8); // finger jitter of 8px must still count as a tap, not a drag
   await sleep(60);
   ok('first touch tap previews (class)', card.classList.contains('preview'));
   eq('preview does not consume the card', w.__loan.get().meta.propInv.peek, 1);
-  card.click();
+  touchTap(card, 0);
   await sleep(1500); // fly animation ~1.06s then effect lands
   eq('second tap plays the card (consumed)', w.__loan.get().meta.propInv.peek, 0);
 
@@ -57,6 +63,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok('match modal closes after reset', !$('matchModal').classList.contains('show'));
   eq('stacks reset to 1000', w.__loan.get().playerStack, 1000);
   eq('props refilled after reset', w.__loan.get().meta.propInv.peek, 1);
+
+  // save export / import
+  ok('save IO hook exists', !!w.__saveIO);
+  const exported = w.__saveIO.exportSaveData();
+  ok('export returns saved JSON with stats', exported.includes('stats'));
+  eq('import rejects garbage', w.__saveIO.importSaveData('not json'), false);
+  eq('import rejects wrong shape', w.__saveIO.importSaveData('{"a":1}'), false);
+  eq('import accepts a valid save', w.__saveIO.importSaveData(exported), true);
 
   console.log(fails === 0 ? 'UPGRADE TEST PASS' : ('FAILURES: ' + fails));
   process.exit(fails ? 1 : 0);

@@ -109,18 +109,19 @@ function botStrength(botHole, community, rng) {
   return Math.min(1, v);
 }
 // 返回 'fold' | 'call' | 'raise'（call 在 toCall=0 时即让牌）
+// strength 是胜率估算（对随机手牌的蒙特卡洛胜率）；面对跟注时按底池赔率算账：
+// 跟注划算的门槛 need = toCall / (pot + toCall)，胜率高于门槛才跟，高很多才反加。
 function botDecide(strength, toCall, pot, rng, aggro) {
   const ag = aggro || 0; // 自主意识：胆量偏移，借大钱/上头时变大
   if (toCall === 0) {
-    if (strength > 0.62 - ag * 0.12) return 'raise';
-    if (strength < 0.22 && rng() < 0.12 + ag * 0.10) return 'raise';     // 偶尔诈唬，上头时更爱唬
+    if (strength > 0.60 - ag * 0.10) return 'raise';
+    if (strength < 0.25 && rng() < 0.10 + ag * 0.10) return 'raise';     // 偶尔诈唬，上头时更爱唬
     return 'call';
   }
-  const pricey = toCall > pot * 0.9;
-  if (strength > (pricey ? 0.55 : 0.5) - ag * 0.10) return 'raise';      // 够强就反加，不再只是跟
-  if (strength > (pricey ? 0.38 : 0.28) - ag * 0.08) return 'call';
-  if (rng() < 0.05 + ag * 0.05) return 'raise';                          // 偶尔弱牌反加诈唬
-  if (rng() < 0.08) return 'call';                                       // 偶尔不信邪跟一把
+  const need = toCall / (pot + toCall);
+  if (strength > 0.72 - ag * 0.06) return 'raise';                       // 胜率压倒性领先，反加做大奖池
+  if (strength > need + 0.03 - ag * 0.06) return 'call';                 // 赔率划算才跟，不再无脑跟
+  if (strength < 0.30 && rng() < 0.05 + ag * 0.05) return 'raise';       // 偶尔弱牌反加诈唬
   return 'fold';
 }
 // 机器人加注量：按牌力和奖池定，不再固定 40；强牌压大、诈唬压小，带随机抖动
@@ -157,6 +158,7 @@ class PokerHand {
     this.phase = 'player'; // player = 等玩家行动 | over = 本手结束（机器人行动在内部同步完成）
     this.turn = this.dealer; // 翻前庄家（小盲）先动
     this.raisesThisStreet = 0;
+    this.playerRaisedThisStreet = false;
     this.lastRaiseBy = this.bb;
     this._acted = { player: false, bot: false };
     this.botRaisedThisHand = false;
@@ -207,7 +209,7 @@ class PokerHand {
         if (by >= this.lastRaiseBy) this.lastRaiseBy = by;
         this.raisesThisStreet++;
         this._acted[side] = true; this._acted[other] = false;
-        if (side === 'player') this.playerRaisedThisHand = true; else { this.botRaisedThisHand = true; this.lastBotRaiseBy = by; }
+        if (side === 'player') { this.playerRaisedThisHand = true; this.playerRaisedThisStreet = true; } else { this.botRaisedThisHand = true; this.lastBotRaiseBy = by; }
       }
     } else { // call / check
       this._contribute(side, tc);
@@ -240,12 +242,14 @@ class PokerHand {
   _botAct() {
     if (this.phase === 'over' || this.turn !== 'bot') return;
     const tc = this._toCallFor('bot');
-    const raw = botStrength(this.botHole, this.community, this.rng);
-    const s = Math.max(0, Math.min(1, raw + (this.rng() - 0.5) * 0.1)); // 判断带抖动，不好摸透
+    // 真胜率：蒙特卡洛模拟对随机手牌的胜率（模拟噪声本身也让它的判断不那么可预测）
+    let s = estimateEquity(this.botHole, this.community, this.rng, this.community.length >= 3 ? 200 : 120);
+    if (this.playerRaisedThisStreet) s -= 0.04; // 对手这条街加注过，范围更强，胜率打折
+    s = Math.max(0, Math.min(1, s + (this.rng() - 0.5) * 0.04));
     let d = botDecide(s, tc, this.pot, this.rng, this.botAggro);
     if (d === 'raise') {
       const by = botRaiseBy(s, this.pot, tc, this.botStack, this.minRaiseBy(), this.rng);
-      if (by <= 0 || this.raisesThisStreet >= MAX_RAISES_PER_STREET) d = tc > 0 || this.botStack > 0 ? 'call' : 'call';
+      if (by <= 0 || this.raisesThisStreet >= MAX_RAISES_PER_STREET) d = 'call';
       else { this._applyAction('bot', 'raise', by); return; }
     }
     if (d === 'fold' && tc === 0) d = 'call'; // 没人下注时不弃牌
@@ -253,7 +257,7 @@ class PokerHand {
   }
   _advanceStreet() {
     this.playerBet = 0; this.botBet = 0;
-    this.raisesThisStreet = 0; this.lastRaiseBy = this.bb;
+    this.raisesThisStreet = 0; this.playerRaisedThisStreet = false; this.lastRaiseBy = this.bb;
     this._acted = { player: false, bot: false };
     if (this.playerStack === 0 || this.botStack === 0) return this._runOut();
     this.street++;

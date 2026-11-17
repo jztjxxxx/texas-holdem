@@ -59,6 +59,12 @@
 <h3>📊 战报与成就</h3>
 <div class="repGrid" id="reportBody"></div>
 <div id="reportBadges" class="badges" style="justify-content:center"></div>
+<div style="margin-top:10px">
+<button class="ghost" id="exportSaveBtn">⬇️ 导出存档</button>
+<button class="ghost" id="importSaveBtn">⬆️ 导入存档</button>
+<input type="file" id="importFile" accept=".json,application/json" style="display:none">
+<div style="font-size:12px; color:#6f9c84; margin-top:6px; line-height:1.6">进度只存在这台设备的浏览器里，清缓存会丢。导出存档文件收好，换设备或清完缓存再导入就能接着打。</div>
+</div>
 <button class="ghost" id="reportCloseBtn" style="margin-top:10px">关闭</button>
 </div>
 </div>
@@ -821,6 +827,12 @@ function openReport() { const wr = stats.games ? Math.round(stats.wins / stats.g
 $('reportBtn').addEventListener('click', openReport);
 $('reportCloseBtn').addEventListener('click', () => $('reportModal').classList.remove('show'));
 window.__report = { openReport, openMatchEnd, resetMatch, stats: () => stats };
+function exportSaveData() { return store.get('monadpoker_save') || '{}'; }
+function importSaveData(text) { try { const obj = JSON.parse(text); if (!obj || typeof obj !== 'object' || !('stats' in obj) || !('meta' in obj)) return false; store.set('monadpoker_save', JSON.stringify(obj)); return true; } catch (e) { return false; } }
+$('exportSaveBtn').addEventListener('click', () => { try { const blob = new Blob([exportSaveData()], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'texas-holdem-save.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 3000); banner('💾 存档已导出，收好这个文件。'); } catch (e) { banner('⚠️ 导出失败，这个浏览器不支持下载。'); } });
+$('importSaveBtn').addEventListener('click', () => $('importFile').click());
+$('importFile').addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { if (importSaveData(String(rd.result))) { banner('✅ 存档导入成功，正在刷新…'); setTimeout(() => location.reload(), 700); } else banner('⚠️ 这个文件不像有效的存档，没导入。'); }; rd.readAsText(f); });
+window.__saveIO = { exportSaveData, importSaveData };
 window.__loan = { borrow, repay, rateFor, applyInterest, levelOf, botBrain, openBrokeModal, closeBrokeModal, openWorkModal, closeWorkModal, get: () => ({ loan, meta, playerStack, botStack }) };
 $('resetBtn').addEventListener('click', () => { if (dealTimer) { clearInterval(dealTimer); dealTimer = null; } dealing = false; animLock = false; flipFrom = 99; revealFlip = false; playerStack = 1000; botStack = 1000; hand = null; loan.p = 0; loan.b = 0; loan.bStreak = 0; meta.propInv = freshPropInv(); persist(); log('已重开整场，双方筹码回 1000，双方债务一笔勾销，道具卡补满全套四张。战绩、任务和等级保留。'); render();});
 function buildPropHand() {
@@ -868,12 +880,10 @@ let propDrag = null, suppressPropClick = false;
 function propElFromEvent(e) { return e.target && e.target.closest ? e.target.closest('#propHand .propCard') : null; }
 function defOfEl(el) { return PROPS.find(d => d.id === el.dataset.pid); }
 function clearPropPreview() { propPreview = null; document.querySelectorAll('#propHand .propCard.preview').forEach(x => x.classList.remove('preview')); }
-$('propHand').addEventListener('click', e => {
-if (suppressPropClick) { suppressPropClick = false; return; }
-const el = propElFromEvent(e);
-if (!el) return;
+function handlePropTap(el) {
+if (!el || el.classList.contains('disabled') || el.classList.contains('gone')) return;
 const pid = el.dataset.pid;
-if (propTouchMode && propPreview !== pid) {
+if (propPreview !== pid) {
 clearPropPreview();
 el.classList.add('preview'); propPreview = pid;
 banner('👆 已放大「' + defOfEl(el).name + '」，再点一次打出，点别处取消。');
@@ -881,6 +891,12 @@ return;
 }
 clearPropPreview();
 playPropCard(defOfEl(el), el);
+}
+$('propHand').addEventListener('click', e => {
+if (suppressPropClick) { suppressPropClick = false; return; }
+if (propTouchMode) return; // 触屏的点按已在 pointerup 里处理，这里只管鼠标
+const el = propElFromEvent(e);
+if (el) playPropCard(defOfEl(el), el);
 });
 document.addEventListener('pointerdown', e => { if (propPreview && !(e.target && e.target.closest && e.target.closest('#propHand'))) clearPropPreview(); });
 function overDropZone(x, y) {
@@ -890,13 +906,13 @@ $('propHand').addEventListener('pointerdown', e => {
 propTouchMode = e.pointerType === 'touch' || e.pointerType === 'pen';
 const el = propElFromEvent(e);
 if (!el || el.classList.contains('disabled') || el.classList.contains('gone')) return;
-propDrag = { x: e.clientX, y: e.clientY, moved: false, el };
+propDrag = { x: e.clientX, y: e.clientY, moved: false, el, touch: propTouchMode };
 el.classList.add('dragging');
 });
 window.addEventListener('pointermove', e => {
 if (!propDrag) return;
 const dx = e.clientX - propDrag.x, dy = e.clientY - propDrag.y;
-if (Math.abs(dx) + Math.abs(dy) > 6) propDrag.moved = true;
+if (Math.abs(dx) + Math.abs(dy) > (propDrag.touch ? 14 : 6)) propDrag.moved = true;
 if (propDrag.moved) {
 propDrag.el.style.transform = 'translate(' + dx + 'px,' + dy + 'px) rotate(-2deg) scale(1.06)';
 const hot = overDropZone(e.clientX, e.clientY);
@@ -907,12 +923,20 @@ $('community').classList.toggle('dropHot', hot);
 window.addEventListener('pointerup', e => {
 if (!propDrag) return;
 const wasMoved = propDrag.moved;
+const wasTouch = propDrag.touch;
 const hot = wasMoved && overDropZone(e.clientX, e.clientY);
 const dragEl = propDrag.el;
 propDrag = null;
 dragEl.classList.remove('dragging');
 $('betZone').classList.remove('dropHot');
 $('community').classList.remove('dropHot');
+if (wasTouch) {
+suppressPropClick = true; // 触屏的点和拖都在这里结算，吞掉浏览器随后补发的 click
+dragEl.style.transform = '';
+if (wasMoved) { if (hot) { clearPropPreview(); playPropCard(defOfEl(dragEl), dragEl); } }
+else handlePropTap(dragEl);
+return;
+}
 if (wasMoved) {
 suppressPropClick = true;
 dragEl.style.transform = '';

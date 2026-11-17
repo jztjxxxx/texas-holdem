@@ -103,6 +103,30 @@ for (let i = 0; i < 300; i++) {
   eq('AA equity > 0.7', aa > 0.7, true);
   eq('72o equity < 0.45', junk < 0.45, true);
 }
+// --- all-in excess refund: the reviewer's scenario, player 5000 vs bot 500 ---
+{
+  let winCase = null, loseCase = null;
+  for (let seed = 1; seed < 800 && (!winCase || !loseCase); seed++) {
+    const h = new E.PokerHand({ playerStack: 5000, botStack: 500, dealer: 'player', rng: mulberry32(seed) });
+    h.playerAct('raise', 99999); // player all-in
+    if (h.phase === 'over' && h.result && !h.result.byFold) {
+      if (h.result.winner === 'bot') winCase = h;
+      if (h.result.winner === 'player') loseCase = h;
+    }
+  }
+  eq('all-in refund: a bot-call showdown case exists', !!winCase || !!loseCase, true);
+  if (winCase) { eq('bot wins only the matched pot (1000)', winCase.botStack, 1000); eq('player keeps the 4500 excess', winCase.playerStack, 4500); }
+  if (loseCase) { eq('bot loses only its 500', loseCase.botStack, 0); eq('player ends with everything', loseCase.playerStack, 5500); }
+}
+// --- bot pot-odds decisions (rng pinned to skip bluff branches) ---
+{
+  const rng99 = () => 0.99;
+  eq('weak hand folds an expensive call (need 45%)', E.botDecide(0.30, 500, 600, rng99, 0), 'fold');
+  eq('weak hand calls a cheap call (need 3%)', E.botDecide(0.30, 20, 600, rng99, 0), 'call');
+  eq('monster re-raises', E.botDecide(0.85, 100, 300, rng99, 0), 'raise');
+  eq('medium checks when free', E.botDecide(0.50, 0, 300, rng99, 0), 'call');
+  eq('strong opens with a raise', E.botDecide(0.70, 0, 300, rng99, 0), 'raise');
+}
 console.log('simulated hands:', hands, 'errors:', errors);
 if (errors) fails++;
 console.log(fails === 0 ? 'ALL ENGINE TESTS PASS' : ('FAILURES: ' + fails));
