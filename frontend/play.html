@@ -93,15 +93,16 @@ function botStrength(botHole, community, rng) {
   return Math.min(1, v);
 }
 // 返回 'fold' | 'call' | 'raise'（call 在 toCall=0 时即让牌）
-function botDecide(strength, toCall, pot, rng) {
+function botDecide(strength, toCall, pot, rng, aggro) {
+  const ag = aggro || 0; // 自主意识：胆量偏移，借大钱/上头时变大
   if (toCall === 0) {
-    if (strength > 0.62) return 'raise';
-    if (strength < 0.22 && rng() < 0.12) return 'raise';     // 偶尔诈唬
+    if (strength > 0.62 - ag * 0.12) return 'raise';
+    if (strength < 0.22 && rng() < 0.12 + ag * 0.10) return 'raise';     // 偶尔诈唬，上头时更爱唬
     return 'call';
   }
   const pricey = toCall > pot * 0.9;
-  if (strength > (pricey ? 0.55 : 0.5)) return 'raise';
-  if (strength > (pricey ? 0.38 : 0.28)) return 'call';
+  if (strength > (pricey ? 0.55 : 0.5) - ag * 0.10) return 'raise';
+  if (strength > (pricey ? 0.38 : 0.28) - ag * 0.08) return 'call';
   if (rng() < 0.08) return 'call';                           // 偶尔不信邪跟一把
   return 'fold';
 }
@@ -111,6 +112,7 @@ class PokerHand {
   constructor(opts) {
     this.rng = opts.rng || Math.random;
     this.raiseSize = opts.raiseSize || 40;
+    this.botAggro = opts.botAggro || 0;
     const sb = opts.smallBlind || 10, bb = opts.bigBlind || 20;
     this.playerStack = opts.playerStack; this.botStack = opts.botStack;
     const deck = shuffle(createDeck(), this.rng);
@@ -160,7 +162,7 @@ class PokerHand {
       this._contribute('player', by);
       // 机器人对加注只回应一次：弃 / 跟（不反加，简化规则）
       const s = botStrength(this.botHole, this.community, this.rng);
-      const d = botDecide(s, this.playerBet - this.botBet, this.pot, this.rng);
+      const d = botDecide(s, this.playerBet - this.botBet, this.pot, this.rng, this.botAggro);
       if (d === 'fold') { this.lastBotAction = 'fold'; return this._endByFold('player'); }
       this.lastBotAction = 'call';
       this._contribute('bot', this.playerBet - this.botBet);
@@ -172,7 +174,7 @@ class PokerHand {
       if (this.playerStack === 0 || this.botStack === 0) return this._runOut();
       // 机器人回合：让牌，或加注一次把决定推回给玩家
       const s = botStrength(this.botHole, this.community, this.rng);
-      const d = botDecide(s, 0, this.pot, this.rng);
+      const d = botDecide(s, 0, this.pot, this.rng, this.botAggro);
       if (d === 'raise') {
         this.botRaisedThisHand = true; this.lastBotAction = 'raise';
         this._contribute('bot', this.raiseSize);
@@ -297,6 +299,11 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 .pchip.c100 { background: #22252a; } .pchip.c250 { background: #7d4fc9; } .pchip.cX { background: #8a6d3b; }
 @keyframes chipDrop { 0% { transform: translateY(-66px) rotate(var(--r, 0deg)); opacity: 0; } 65% { transform: translateY(5px) rotate(var(--r, 0deg)); opacity: 1; } 100% { transform: translateY(0) rotate(var(--r, 0deg)); opacity: 1; } }
 #betPile.collect .pchip { transition: transform .35s ease, opacity .35s ease; transform: translateY(-48px) scale(.55) !important; opacity: 0; }
+.xpbar { height: 9px; background: #0a1a12; border-radius: 99px; overflow: hidden; margin-top: 9px; }
+#xpFill { height: 100%; background: linear-gradient(90deg, #34d399, #ffd95e); width: 0%; transition: width .4s ease; }
+.quest { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: #c9f2da; padding: 5px 0; border-bottom: 1px dashed #234534; }
+.quest:last-child { border-bottom: none; }
+.loanB, .loanR { margin: 2px 2px 2px 0; }
 </style>
 </head>
 <body>
@@ -308,7 +315,7 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 
 <div class="layout">
 <div class="table">
-<div class="who">🤖 <b>机器人阿莫</b> · 筹码 <b id="botStack">1000</b><span id="botHandName" style="color:#ffd95e"></span></div>
+<div class="who">🤖 <b>机器人阿莫</b> · 筹码 <b id="botStack">1000</b><span id="botDebt" style="color:#ff9d9d"></span><span id="botHandName" style="color:#ffd95e"></span></div>
 <div id="botTalk"><span class="bubble">坐下吧，我让你先看两张牌。</span></div>
 <div id="deck" class="deck">🎴 荷 官 🎴</div>
 <div class="cards" id="botCards" style="margin-top:10px"></div>
@@ -316,7 +323,7 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 <div class="cards" id="community"></div>
 <div id="betZone"><div class="betLabel">🎯 你的下注区 · 点的筹码会掉落在这里</div><div id="betPile"></div></div>
 <div class="cards" id="playerCards" style="margin-top:8px"></div>
-<div class="who">🧑 <b>你</b> · 筹码 <b id="playerStack">1000</b> · 本手已投入 <b id="playerContrib">0</b><span id="playerHandName" style="color:#ffd95e"></span></div>
+<div class="who">🧑 <b>你</b> · 筹码 <b id="playerStack">1000</b> · 本手已投入 <b id="playerContrib">0</b><span id="playerDebt" style="color:#ff9d9d"></span><span id="playerHandName" style="color:#ffd95e"></span></div>
 </div>
 <aside class="hint" id="hintPanel"><div class="hintTitle">📢 提示播报</div><div id="hintBody"><div class="hintLine">开始一手后，这里会播报你的牌能凑出什么牌型。</div></div></aside>
 </div>
@@ -349,6 +356,28 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 </div>
 
 <div class="panel"><div class="log" id="log">点“下一手”或直接开始：第一手马上发牌。</div></div>
+
+<div class="panel">
+<div class="stats">
+<span>🏦 你的负债 <b id="loanDebt">0</b></span>
+<span>利率 <b id="loanRate">0%/手</b></span>
+<span>净资产 <b id="netWorth">1000</b></span>
+<span>等级 <b id="lvText">Lv.0 赌场新手</b></span>
+</div>
+<div class="xpbar"><div id="xpFill"></div></div>
+<div id="xpText" style="font-size:12.5px; color:#9fd8bb; margin-top:5px"></div>
+<div style="margin-top:10px">
+<button class="ghost loanB" data-amt="500">借 500</button>
+<button class="ghost loanB" data-amt="1000">借 1000</button>
+<button class="ghost loanB" data-amt="2000">借 2000</button>
+<button class="ghost loanB" data-amt="5000">借 5000</button>
+<button class="ghost loanR" data-amt="500">还 500</button>
+<button class="ghost loanR" data-amt="2000">还 2000</button>
+<button class="ghost" id="repayAllBtn">全部还清</button>
+</div>
+<div id="questList" style="margin-top:10px"></div>
+<div style="font-size:12px; color:#6f9c84; margin-top:8px; line-height:1.6">借贷规则：负债越深利率越高（≤1000 是 2%/手，≤3000 是 4%，≤8000 是 6%，再高 9%/手），每手结算扣利息，不够扣就滚进本金；总负债上限 20000。机器人没钱会自己借、宽裕了会自己还，连输上头还会借大笔并打得更凶。做任务、升级都有筹码奖励，每天首次打开 +200。</div>
+</div>
 
 <div class="panel">
 <div class="stats">
@@ -411,16 +440,76 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 };
 
+// ---------- 借贷与成长系统 ----------
+const LOAN_CAP = 20000;
+const LEVELS = [0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200, 4200];
+const TITLES = ['赌场新手', '牌桌学徒', '小有名气', '冷面客', '牌局老手', '豪赌客', '赌场明星', '高额桌贵宾', '传奇玩家', '赌神', '神话传说'];
+const QUEST_DEFS = [
+{ id: 'win3', label: '赢下 3 手', target: 3, reward: 120, ev: 'win' },
+{ id: 'win5', label: '赢下 5 手', target: 5, reward: 200, ev: 'win' },
+{ id: 'hands10', label: '打满 10 手', target: 10, reward: 100, ev: 'hand' },
+{ id: 'streak3', label: '达成 3 连胜', target: 3, reward: 180, ev: 'streak' },
+{ id: 'big1', label: '打出三条或更好的牌型', target: 1, reward: 200, ev: 'big' },
+{ id: 'bluff1', label: '诈唬成功 1 次（加注吓跑机器人）', target: 1, reward: 180, ev: 'bluff' },
+{ id: 'prop1', label: '用道具赢下 1 手', target: 1, reward: 150, ev: 'propwin' },
+{ id: 'allin1', label: '全下并获胜 1 次', target: 1, reward: 250, ev: 'allinwin' }
+];
+function rateFor(d) { return d <= 0 ? 0 : d <= 1000 ? 0.02 : d <= 3000 ? 0.04 : d <= 8000 ? 0.06 : 0.09; }
+function levelOf(xp) { let lv = 0; LEVELS.forEach((t, i) => { if (xp >= t) lv = i; }); return lv; }
+function newQuest(excludeIds) { const pool = QUEST_DEFS.filter(q => !excludeIds.includes(q.id)); const d = pool[Math.floor(Math.random() * pool.length)] || QUEST_DEFS[0]; return { id: d.id, progress: 0 }; }
+function applyInterest(p, b, notes) {
+if (loan.p > 0) {
+const rate = rateFor(loan.p), due = Math.ceil(loan.p * rate), pay = Math.min(due, p);
+p -= pay;
+if (pay < due) { loan.p += due - pay; notes.push('💸 你的利息 ' + due + '（' + (rate * 100) + '%/手），筹码不够扣，欠的滚进本金，负债升到 ' + loan.p + '。'); }
+else notes.push('💸 扣除你的利息 ' + due + '（负债 ' + loan.p + '，利率 ' + (rate * 100) + '%/手）。');
+}
+if (loan.b > 0) {
+const rate = rateFor(loan.b), due = Math.ceil(loan.b * rate), pay = Math.min(due, b);
+b -= pay;
+if (pay < due) { loan.b += due - pay; notes.push('💸 机器人利息 ' + due + ' 没扣够，滚进它的本金，它负债升到 ' + loan.b + '。'); }
+else notes.push('💸 机器人被扣利息 ' + due + '（它的负债 ' + loan.b + '）。');
+}
+return [p, b];
+}
+// 机器人的自主财务脑：自己借、自己还、连输上头
+function botBrain() {
+const lines = [];
+let aggro = loan.trait === 'bold' ? 0.4 : 0.05;
+if (loan.bStreak >= 3) aggro = 0.85;
+if (loan.b > 0 && botStack > 1600) {
+const repayAmt = Math.min(loan.b, botStack - 1200);
+if (repayAmt > 0) { loan.b -= repayAmt; botStack -= repayAmt; lines.push('🤖 机器人手头宽裕，自己先还了 ' + repayAmt + ' 借款（剩余负债 ' + loan.b + '）。'); }
+}
+if (botStack < 20 && loan.b < LOAN_CAP) {
+let amt = loan.trait === 'bold' ? 2500 : 1000;
+if (loan.bStreak >= 3) amt = 4000;
+amt = Math.min(amt, LOAN_CAP - loan.b);
+loan.b += amt; botStack += amt;
+lines.push('🤖 机器人没钱下注，自己去借了 ' + amt + '（负债 ' + loan.b + '）' + (loan.bStreak >= 3 ? '——连输上头了，借得特别大，打法也会更凶！' : (loan.trait === 'bold' ? '，它天生借得豪气。' : '。')));
+} else if (botStack >= 20 && botStack < 150 && loan.b < LOAN_CAP && Math.random() < 0.5) {
+const amt = Math.min(loan.trait === 'bold' ? 1200 : 600, LOAN_CAP - loan.b);
+if (amt > 0) { loan.b += amt; botStack += amt; lines.push('🤖 机器人嫌筹码薄，自己补借了 ' + amt + '（负债 ' + loan.b + '）。'); }
+}
+if (lines.length) persist();
+return { aggro: aggro + (Math.random() * 0.1 - 0.05), lines };
+}
+
 // ---------- 持久状态 ----------
 let save = JSON.parse(store.get('monadpoker_save') || '{}');
 let stats = save.stats || { games: 0, wins: 0, best: -1};
 let streak = save.streak || 0;
 let unlocked = new Set(save.unlocked || []);
 let pending = save.pending || { games: 0, wins: 0, best: -1};
-function persist() { store.set('monadpoker_save', JSON.stringify({ stats, streak, unlocked: [...unlocked], pending })); }
+let loan = save.loan || { p: 0, b: 0, bStreak: 0, trait: Math.random() < 0.5 ? 'steady' : 'bold' };
+let meta = save.meta || { xp: 0, lastDaily: '', quests: [] };
+while (meta.quests.length < 3) meta.quests.push(newQuest(meta.quests.map(q => q.id)));
+function persist() { store.set('monadpoker_save', JSON.stringify({ stats, streak, unlocked: [...unlocked], pending, loan, meta })); }
 
 // ---------- 对局状态 ----------
 let playerStack = 1000, botStack = 1000;
+const todayStr = new Date().toLocaleDateString('en-CA');
+if (meta.lastDaily !== todayStr) { meta.lastDaily = todayStr; playerStack += 200; setTimeout(() => banner('🎁 每日登录奖励 +200 筹码，祝今天手气爆棚！'), 700); persist(); }
 let hand = null, prop = null, propUsed = false, peekOn = false, settled = false, playerWentAllIn = false;
 let dealing = false, dealStep = 0, dealTimer = null, animLock = false, flipFrom = 99, revealFlip = false;
 let raiseAmt = 40;
@@ -571,6 +660,20 @@ $('statWins').textContent = stats.wins;
 $('statStreak').textContent = streak;
 $('statBest').textContent = stats.best >= 0? E.HAND_NAMES[stats.best]: '-';
 $('statPending').textContent = pending.games;
+$('botDebt').textContent = loan.b > 0 ? ' · 负债 ' + loan.b : '';
+$('playerDebt').textContent = loan.p > 0 ? ' · 负债 ' + loan.p : '';
+$('loanDebt').textContent = loan.p;
+$('loanRate').textContent = (rateFor(loan.p) * 100) + '%/手';
+$('netWorth').textContent = playerStack - loan.p;
+const lvNow = levelOf(meta.xp);
+$('lvText').textContent = 'Lv.' + lvNow + ' ' + TITLES[lvNow];
+const nextT = LEVELS[lvNow + 1];
+$('xpFill').style.width = nextT ? Math.min(100, Math.round(meta.xp / nextT * 100)) + '%' : '100%';
+$('xpText').textContent = nextT ? ('经验 ' + meta.xp + ' / ' + nextT + '（还差 ' + (nextT - meta.xp) + ' 升级，升级有筹码奖励）') : ('经验 ' + meta.xp + ' · 已满级');
+$('questList').innerHTML = meta.quests.map(q => { const def = QUEST_DEFS.find(d => d.id === q.id); if (!def) return ''; return '<div class="quest"><span>🎯 ' + def.label + '（' + Math.min(q.progress, def.target) + '/' + def.target + '）</span><span>奖励 +' + def.reward + '</span></div>'; }).join('');
+const inHandNow = !!(hand && hand.phase !== 'over');
+document.querySelectorAll('.loanB, .loanR').forEach(btn => btn.disabled = inHandNow);
+$('repayAllBtn').disabled = inHandNow || loan.p <= 0 || playerStack <= 0;
 $('streakFlame').textContent = streak >= 2? '🔥×' + streak: '';
 $('badges').innerHTML = ACHIEVEMENTS.map(a =>
 '<span class="badge' + (unlocked.has(a.id)? ' on': '') + '">' + a.name + (unlocked.has(a.id)? '': ' · 未解锁') + '</span>').join('');
@@ -585,15 +688,17 @@ banner('🎉 成就解锁：' + a.name);
 }
 
 function newHand() {
-if (playerStack < 20 || botStack < 20) { log('有一方筹码不够下盲注了，点“重开整场”把筹码补回 1000。'); return;}
-hand = new E.PokerHand({ playerStack, botStack, rng: Math.random});
+const brain = botBrain();
+if (playerStack < 20) { log('你的筹码不够下盲注了！去借贷区借一笔继续打，或者点“重开整场”。' + (brain.lines.length ? '\n' + brain.lines.join('\n') : '')); render(); return; }
+if (botStack < 20) { log('机器人借不到钱了（负债到顶），点“重开整场”吧。'); render(); return; }
+hand = new E.PokerHand({ playerStack, botStack, rng: Math.random, botAggro: brain.aggro });
 prop = PROPS[Math.floor(Math.random() * PROPS.length)];
 propUsed = false; peekOn = false; settled = false; playerWentAllIn = false;
 $('propIcon').textContent = prop.icon;
 $('propDesc').textContent = '道具卡：' + prop.desc + '（每手限用一次）';
 $('propBtn').textContent = '使用道具';
 talk(pick(TALK.deal));
-log('第 ' + (stats.games + 1) + ' 手。你是小盲 10，机器人大盲 20，跟注 10 开始。抽到的道具卡：' + prop.name + '。荷官发牌中…');
+log('第 ' + (stats.games + 1) + ' 手。你是小盲 10，机器人大盲 20，跟注 10 开始。抽到的道具卡：' + prop.name + '。荷官发牌中…' + (brain.lines.length ? '\n' + brain.lines.join('\n') : ''));
 raiseAmt = 40; clearPile(false);
 dealing = true; dealStep = 0; flipFrom = 99; revealFlip = false;
 if (dealTimer) clearInterval(dealTimer);
@@ -635,6 +740,15 @@ if (cat >= 6) unlock('fullhouse_plus');
 if (cat >= 5) banner('🌟 你打出了' + r.playerHand + '！');
 }
 if (stats.games >= 10) unlock('hands10');
+[p, b] = applyInterest(p, b, notes);
+const evs = { hand: 1, win: r.winner === 'player' ? 1 : 0, streak: streak, big: (!r.byFold && r.playerScore && r.playerScore[0] >= 3) ? 1 : 0, bluff: r.playerBluffWin ? 1 : 0, propwin: (propUsed && r.winner === 'player') ? 1 : 0, allinwin: (playerWentAllIn && r.winner === 'player' && !r.byFold) ? 1 : 0 };
+meta.quests.forEach(q => { const def = QUEST_DEFS.find(d => d.id === q.id); if (!def) return; if (def.ev === 'streak') q.progress = Math.max(q.progress, evs.streak); else q.progress += evs[def.ev] || 0; });
+for (let i = 0; i < meta.quests.length; i++) { const q = meta.quests[i], def = QUEST_DEFS.find(d => d.id === q.id); if (def && q.progress >= def.target) { p += def.reward; notes.push('🎯 任务完成「' + def.label + '」奖励 +' + def.reward + ' 筹码！'); banner('🎯 任务完成：' + def.label + ' +' + def.reward); meta.quests[i] = newQuest(meta.quests.map(x => x.id)); } }
+const oldLv = levelOf(meta.xp);
+meta.xp += 10 + (r.winner === 'player' ? 15 : 0) + (!r.byFold && r.playerScore ? (r.playerScore[0] >= 5 ? 30 : r.playerScore[0] >= 3 ? 10 : 0) : 0);
+const newLv = levelOf(meta.xp);
+if (newLv > oldLv) { const bonus = 100 * newLv; p += bonus; notes.push('🆙 升级到 Lv.' + newLv + '「' + TITLES[newLv] + '」！升级奖励 +' + bonus + ' 筹码。'); banner('🆙 升级！Lv.' + newLv + ' ' + TITLES[newLv]); }
+if (r.winner === 'player') loan.bStreak++; else if (r.winner === 'bot') loan.bStreak = 0;
 playerStack = p; botStack = b;
 persist();
 return notes;
@@ -660,8 +774,8 @@ if (r.botBluffWin) { talk(pick(TALK.bluffCaught));}
 else if (r.winner === 'player') talk(r.playerScore && r.playerScore[0] >= 5? pick(TALK.playerBig): pick(TALK.botLose));
 else if (r.winner === 'bot' &&!r.byFold) talk(pick(TALK.botWin));
 log([msg].concat(notes).join('\n'));
-if (playerStack < 20) log($('log').textContent + '\n你的筹码不够下盲注了，点“重开整场”补回 1000（战绩保留）。');
-else if (botStack < 20) log($('log').textContent + '\n机器人筹码不够下盲注了，点“重开整场”补满它（战绩保留）。');
+if (playerStack < 20) log($('log').textContent + '\n你的筹码不够下盲注了，去借贷区借一笔继续打，或者点“重开整场”。');
+else if (botStack < 20) log($('log').textContent + '\n机器人筹码见底了，下一手它会自己借钱续命。');
 }
 render();
 }
@@ -708,7 +822,13 @@ const maxBy = hand.playerStack - hand.toCall();
 raiseAmt = Math.max(10, Math.min(40, maxBy)); clearPile(true); blip(500); render();
 });
 $('nextBtn').addEventListener('click', newHand);
-$('resetBtn').addEventListener('click', () => { if (dealTimer) { clearInterval(dealTimer); dealTimer = null; } dealing = false; animLock = false; flipFrom = 99; revealFlip = false; playerStack = 1000; botStack = 1000; hand = null; log('已重开整场，双方筹码回 1000。战绩和成就保留。'); render();});
+function borrow(amount) { if (hand && hand.phase !== 'over') return; const amt = Math.min(amount, LOAN_CAP - loan.p); if (amt <= 0) { banner('🚫 负债已到上限 20000，先还一点再借吧'); return; } loan.p += amt; playerStack += amt; banner('🏦 借入 ' + amt + '，负债 ' + loan.p + '，利率 ' + (rateFor(loan.p) * 100) + '%/手'); persist(); render(); }
+function repay(amount) { if (hand && hand.phase !== 'over') return; const amt = Math.min(amount, loan.p, playerStack); if (amt <= 0) return; loan.p -= amt; playerStack -= amt; banner('💰 还款 ' + amt + '，剩余负债 ' + loan.p); persist(); render(); }
+document.querySelectorAll('.loanB').forEach(btn => btn.addEventListener('click', () => borrow(parseInt(btn.dataset.amt, 10))));
+document.querySelectorAll('.loanR').forEach(btn => btn.addEventListener('click', () => repay(parseInt(btn.dataset.amt, 10))));
+$('repayAllBtn').addEventListener('click', () => repay(loan.p));
+window.__loan = { borrow, repay, rateFor, applyInterest, levelOf, botBrain, get: () => ({ loan, meta, playerStack, botStack }) };
+$('resetBtn').addEventListener('click', () => { if (dealTimer) { clearInterval(dealTimer); dealTimer = null; } dealing = false; animLock = false; flipFrom = 99; revealFlip = false; playerStack = 1000; botStack = 1000; hand = null; loan.p = 0; loan.b = 0; loan.bStreak = 0; persist(); log('已重开整场，双方筹码回 1000，双方债务一笔勾销。战绩、任务和等级保留。'); render();});
 $('propBtn').addEventListener('click', () => {
 if (!hand ||!prop || propUsed) return;
 if (prop.id === 'peek') { peekOn = true; propUsed = true; talk('哼，你都看到我一张牌了，公平呢？'); log('👀 透视眼生效：机器人左边那张底牌已经翻开给你看。');}

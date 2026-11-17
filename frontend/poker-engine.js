@@ -85,15 +85,16 @@ function botStrength(botHole, community, rng) {
   return Math.min(1, v);
 }
 // 返回 'fold' | 'call' | 'raise'（call 在 toCall=0 时即让牌）
-function botDecide(strength, toCall, pot, rng) {
+function botDecide(strength, toCall, pot, rng, aggro) {
+  const ag = aggro || 0; // 自主意识：胆量偏移，借大钱/上头时变大
   if (toCall === 0) {
-    if (strength > 0.62) return 'raise';
-    if (strength < 0.22 && rng() < 0.12) return 'raise';     // 偶尔诈唬
+    if (strength > 0.62 - ag * 0.12) return 'raise';
+    if (strength < 0.22 && rng() < 0.12 + ag * 0.10) return 'raise';     // 偶尔诈唬，上头时更爱唬
     return 'call';
   }
   const pricey = toCall > pot * 0.9;
-  if (strength > (pricey ? 0.55 : 0.5)) return 'raise';
-  if (strength > (pricey ? 0.38 : 0.28)) return 'call';
+  if (strength > (pricey ? 0.55 : 0.5) - ag * 0.10) return 'raise';
+  if (strength > (pricey ? 0.38 : 0.28) - ag * 0.08) return 'call';
   if (rng() < 0.08) return 'call';                           // 偶尔不信邪跟一把
   return 'fold';
 }
@@ -103,6 +104,7 @@ class PokerHand {
   constructor(opts) {
     this.rng = opts.rng || Math.random;
     this.raiseSize = opts.raiseSize || 40;
+    this.botAggro = opts.botAggro || 0;
     const sb = opts.smallBlind || 10, bb = opts.bigBlind || 20;
     this.playerStack = opts.playerStack; this.botStack = opts.botStack;
     const deck = shuffle(createDeck(), this.rng);
@@ -152,7 +154,7 @@ class PokerHand {
       this._contribute('player', by);
       // 机器人对加注只回应一次：弃 / 跟（不反加，简化规则）
       const s = botStrength(this.botHole, this.community, this.rng);
-      const d = botDecide(s, this.playerBet - this.botBet, this.pot, this.rng);
+      const d = botDecide(s, this.playerBet - this.botBet, this.pot, this.rng, this.botAggro);
       if (d === 'fold') { this.lastBotAction = 'fold'; return this._endByFold('player'); }
       this.lastBotAction = 'call';
       this._contribute('bot', this.playerBet - this.botBet);
@@ -164,7 +166,7 @@ class PokerHand {
       if (this.playerStack === 0 || this.botStack === 0) return this._runOut();
       // 机器人回合：让牌，或加注一次把决定推回给玩家
       const s = botStrength(this.botHole, this.community, this.rng);
-      const d = botDecide(s, 0, this.pot, this.rng);
+      const d = botDecide(s, 0, this.pot, this.rng, this.botAggro);
       if (d === 'raise') {
         this.botRaisedThisHand = true; this.lastBotAction = 'raise';
         this._contribute('bot', this.raiseSize);
