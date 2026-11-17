@@ -55,12 +55,54 @@ for (let i = 0; i < 300; i++) {
   eq('all-in raise: chip conservation', h2.totalChips(), 1300);
   const h3 = new E.PokerHand({ playerStack: 1000, botStack: 1000, rng: mulberry32(9) });
   h3.playerAct('raise', 1);
-  eq('tiny raise clamps to min 10', h3.playerContrib, 30);
+  eq('tiny raise clamps to min (big blind 20)', h3.playerContrib, 40);
   const h4 = new E.PokerHand({ playerStack: 1000, botStack: 1000, rng: mulberry32(10) });
   h4.playerAct('raise');
-  eq('no amount = default 40 raise', h4.playerContrib, 60);
+  eq('no amount = default min raise (20)', h4.playerContrib, 40);
 }
 
+// --- dealer rotation: bot deals => bot posts small blind, player big blind ---
+{
+  const h = new E.PokerHand({ playerStack: 1000, botStack: 1000, dealer: 'bot', rng: mulberry32(11) });
+  eq('bot dealer: bot contrib = SB 10 (+maybe action)', h.botContrib >= 10, true);
+  eq('bot dealer: player contrib = BB 20', h.playerContrib, 20);
+  eq('bot dealer: blinds total in pot or settled', h.totalChips(), 2000);
+  let g = 0; while (h.phase !== 'over' && g++ < 100) h.playerAct('call');
+  eq('bot dealer: hand finishes', h.phase, 'over');
+  eq('bot dealer: conservation', h.totalChips(), 2000);
+}
+// --- re-raise battle: find a seed where the bot re-raises the player's raise ---
+{
+  let found = false;
+  for (let seed = 1; seed < 400 && !found; seed++) {
+    const h = new E.PokerHand({ playerStack: 5000, botStack: 5000, rng: mulberry32(seed) });
+    h.playerAct('raise', 60);
+    if (h.phase !== 'over' && h.toCall() > 0 && h.raisesThisStreet === 2) {
+      found = true;
+      eq('bot re-raised: player faces a bet', h.toCall() > 0, true);
+      const tcB = h.toCall(), cB = h.playerContrib, minB = h.minRaiseBy();
+      h.playerAct('raise', 60);
+      eq('player re-re-raise accepted (contrib += toCall + max(60, minRaise))', h.playerContrib - cB, tcB + Math.max(60, minB));
+      eq('re-raise war: conservation', h.totalChips(), 10000);
+    }
+  }
+  eq('bot sometimes re-raises (seed scan)', found, true);
+}
+// --- bot raise sizing varies with strength ---
+{
+  const strong = E.botRaiseBy(0.95, 400, 0, 2000, 20, mulberry32(3));
+  const weak = E.botRaiseBy(0.1, 400, 0, 2000, 20, mulberry32(3));
+  eq('strong hand raises bigger than bluff', strong > weak, true);
+  eq('raise respects min', weak >= 20, true);
+  eq('raise respects stack', E.botRaiseBy(0.95, 400, 0, 50, 20, mulberry32(3)) <= 50, true);
+}
+// --- equity estimator sanity ---
+{
+  const aa = E.estimateEquity([{ r: 14, s: 0 }, { r: 14, s: 1 }], [], mulberry32(5), 300);
+  const junk = E.estimateEquity([{ r: 7, s: 0 }, { r: 2, s: 1 }], [], mulberry32(5), 300);
+  eq('AA equity > 0.7', aa > 0.7, true);
+  eq('72o equity < 0.45', junk < 0.45, true);
+}
 console.log('simulated hands:', hands, 'errors:', errors);
 if (errors) fails++;
 console.log(fails === 0 ? 'ALL ENGINE TESTS PASS' : ('FAILURES: ' + fails));
