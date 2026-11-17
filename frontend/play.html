@@ -21,8 +21,23 @@
 <input type="range" id="loanSlider" min="100" max="20000" step="100" value="1000">
 <p id="loanRatePreview" style="font-size:12.5px; color:#9fd8bb"></p>
 <button id="confirmLoanBtn" style="margin-top:6px">确认借入</button>
+<button class="ghost" id="workFromModalBtn" style="margin-top:6px">还不起？去打工抵债</button>
 <button class="ghost modalLater" style="margin-top:6px">稍后再说</button>
 </div>
+</div>
+</div>
+<div class="modalOverlay" id="workModal">
+<div class="modalCard">
+<h3>🧹 打工抵债</h3>
+<p>你欠着 <b id="workDebt">0</b> 筹码，还不起？那就打工抵债。工种只有一个：站在牌桌边，大声喊出这句话三遍——</p>
+<p class="big" id="shoutText">“可恶 赔惨了”</p>
+<button id="shoutBtn">📣 喊！</button>
+<p id="shoutCount" style="font-size:12.5px; color:#9fd8bb">已喊 0 / 3 遍</p>
+<div id="botConfirm" style="display:none">
+<p>🤖 机器人阿莫：听到了，三遍都喊完了，够惨，我确认。</p>
+<button id="botConfirmBtn">机器人确认：债务清零，离桌</button>
+</div>
+<button class="ghost" id="workCancelBtn" style="margin-top:8px">算了，我再想想</button>
 </div>
 </div>
 <script>
@@ -426,6 +441,7 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 <button class="ghost loanR" data-amt="500">还 500</button>
 <button class="ghost loanR" data-amt="2000">还 2000</button>
 <button class="ghost" id="repayAllBtn">全部还清</button>
+<button class="ghost" id="workBtn">😭 还不起？打工抵债</button>
 </div>
 <div id="questList" style="margin-top:10px"></div>
 <div style="font-size:12px; color:#6f9c84; margin-top:8px; line-height:1.6">借贷规则：负债越深利率越高（≤1000 是 2%/手，≤3000 是 4%，≤8000 是 6%，再高 9%/手），每手结算扣利息，不够扣就滚进本金；总负债上限 20000。机器人没钱会自己借、宽裕了会自己还，连输上头还会借大笔并打得更凶。做任务、升级都有筹码奖励，每天首次打开 +200。</div>
@@ -730,6 +746,7 @@ $('questList').innerHTML = meta.quests.map(q => { const def = QUEST_DEFS.find(d 
 const inHandNow = !!(hand && hand.phase !== 'over');
 document.querySelectorAll('.loanB, .loanR').forEach(btn => btn.disabled = inHandNow);
 $('repayAllBtn').disabled = inHandNow || loan.p <= 0 || playerStack <= 0;
+$('workBtn').disabled = inHandNow || loan.p <= 0;
 $('streakFlame').textContent = streak >= 2? '🔥×' + streak: '';
 $('badges').innerHTML = ACHIEVEMENTS.map(a =>
 '<span class="badge' + (unlocked.has(a.id)? ' on': '') + '">' + a.name + (unlocked.has(a.id)? '': ' · 未解锁') + '</span>').join('');
@@ -909,7 +926,38 @@ $('loanSlider').addEventListener('input', updateLoanPreview);
 $('claimGiftBtn').addEventListener('click', () => { loan.rescues = 1; playerStack += 500; persist(); closeBrokeModal(); banner('🎁 救济金 +500 到账，省着点花！'); render(); });
 $('confirmLoanBtn').addEventListener('click', () => { const amt = parseInt($('loanSlider').value, 10) || 0; if (amt <= 0) return; loan.p += amt; playerStack += amt; persist(); closeBrokeModal(); banner('🏦 借入 ' + amt + '，负债 ' + loan.p + '，利率 ' + (rateFor(loan.p) * 100) + '%/手'); render(); });
 document.querySelectorAll('.modalLater').forEach(b => b.addEventListener('click', closeBrokeModal));
-window.__loan = { borrow, repay, rateFor, applyInterest, levelOf, botBrain, openBrokeModal, closeBrokeModal, get: () => ({ loan, meta, playerStack, botStack }) };
+let shoutCount = 0;
+function openWorkModal() {
+if (loan.p <= 0 || (hand && hand.phase !== 'over')) return;
+shoutCount = 0;
+$('workDebt').textContent = loan.p;
+$('shoutCount').textContent = '已喊 0 / 3 遍';
+$('shoutText').style.transform = '';
+$('botConfirm').style.display = 'none';
+$('shoutBtn').disabled = false;
+$('workModal').classList.add('show');
+}
+function closeWorkModal() { $('workModal').classList.remove('show'); }
+$('shoutBtn').addEventListener('click', () => {
+shoutCount++;
+blip(480 + shoutCount * 170);
+$('shoutText').style.transform = 'scale(' + (1 + shoutCount * 0.14) + ') rotate(' + (shoutCount % 2 ? -2 : 2) + 'deg)';
+$('shoutCount').textContent = '已喊 ' + Math.min(shoutCount, 3) + ' / 3 遍';
+if (shoutCount >= 3) { $('shoutBtn').disabled = true; $('botConfirm').style.display = ''; }
+});
+$('botConfirmBtn').addEventListener('click', () => {
+loan.p = 0;
+meta.workCount = (meta.workCount || 0) + 1;
+hand = null; playerStack = 1000; botStack = 1000;
+persist(); closeWorkModal();
+banner('🚪 债务清零！你被机器人赶出了牌桌，筹码重置 1000，从头来过。');
+log('🧹 打工抵债完成：你喊了三遍“可恶 赔惨了”，机器人确认无误，债务清零，你被赶出牌桌（双方筹码重置 1000）。');
+render();
+});
+$('workBtn').addEventListener('click', openWorkModal);
+$('workCancelBtn').addEventListener('click', closeWorkModal);
+$('workFromModalBtn').addEventListener('click', () => { closeBrokeModal(); openWorkModal(); });
+window.__loan = { borrow, repay, rateFor, applyInterest, levelOf, botBrain, openBrokeModal, closeBrokeModal, openWorkModal, closeWorkModal, get: () => ({ loan, meta, playerStack, botStack }) };
 $('resetBtn').addEventListener('click', () => { if (dealTimer) { clearInterval(dealTimer); dealTimer = null; } dealing = false; animLock = false; flipFrom = 99; revealFlip = false; playerStack = 1000; botStack = 1000; hand = null; loan.p = 0; loan.b = 0; loan.bStreak = 0; persist(); log('已重开整场，双方筹码回 1000，双方债务一笔勾销。战绩、任务和等级保留。'); render();});
 function flyPropCard(done) {
 const card = $('propCard'); const table = document.querySelector('.table');
