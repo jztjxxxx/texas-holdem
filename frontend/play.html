@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monad Poker · 德州扑克（单文件版）</title>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+'use strict';
+/* poker-engine.js —— 单挑德州扑克引擎（练手/备用项目版，规则简化见 README）
+   纯逻辑，不碰页面：牌型评估 + 机器人 AI + 一手牌的状态机。浏览器和 Node 测试共用。 */
+
+// ---------- 牌与牌型评估 ----------
+function createDeck() {
+  const deck = [];
+  for (let s = 0; s < 4; s++) for (let r = 2; r <= 14; r++) deck.push({ r, s });
+  return deck;
+}
+function shuffle(deck, rng) {
+  const d = deck.slice();
+  for (let i = d.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [d[i], d[j]] = [d[j], d[i]];
+  }
+  return d;
+}
+// 评估恰好 5 张，返回可直接比大小的数组 [类别, 踢脚...]，越大越强
+function evaluate5(cards) {
+  const ranks = cards.map(c => c.r).sort((a, b) => b - a);
+  const flush = cards.every(c => c.s === cards[0].s);
+  const uniq = [...new Set(ranks)];
+  let straightHigh = 0;
+  if (uniq.length === 5) {
+    if (uniq[0] - uniq[4] === 4) straightHigh = uniq[0];
+    else if (uniq.join(',') === '14,5,4,3,2') straightHigh = 5; // 轮子顺 A-2-3-4-5
+  }
+  const counts = {};
+  ranks.forEach(r => counts[r] = (counts[r] || 0) + 1);
+  // 按 张数 多到少、同张数点大到小 排
+  const groups = Object.entries(counts)
+    .map(([r, n]) => ({ r: +r, n }))
+    .sort((a, b) => b.n - a.n || b.r - a.r);
+  const g = groups.map(x => x.n), gr = groups.map(x => x.r);
+  if (straightHigh && flush) return [8, straightHigh];
+  if (g[0] === 4) return [7, gr[0], gr[1]];
+  if (g[0] === 3 && g[1] === 2) return [6, gr[0], gr[1]];
+  if (flush) return [5, ...ranks];
+  if (straightHigh) return [4, straightHigh];
+  if (g[0] === 3) return [3, gr[0], ...gr.slice(1).sort((a, b) => b - a)];
+  if (g[0] === 2 && g[1] === 2) { const pairs = gr.slice(0, 2).sort((a, b) => b - a); return [2, ...pairs, gr[2]]; }
+  if (g[0] === 2) return [1, gr[0], ...gr.slice(1).sort((a, b) => b - a)];
+  return [0, ...ranks];
+}
+function compareScore(a, b) {
+  const n = Math.max(a.length, b.length);
+  for (let i = 0; i < n; i++) { const d = (a[i] || 0) - (b[i] || 0); if (d) return d; }
+  return 0;
+}
+// 评估 5~7 张里的最佳 5 张
+function evaluateBest(cards) {
+  let best = null;
+  const idx = cards.map((_, i) => i);
+  function* combos(arr, k, start = 0, cur = []) {
+    if (cur.length === k) { yield cur.slice(); return; }
+    for (let i = start; i < arr.length; i++) { cur.push(arr[i]); yield* combos(arr, k, i + 1, cur); cur.pop(); }
+  }
+  for (const c of combos(idx, 5)) {
+    const s = evaluate5(c.map(i => cards[i]));
+    if (!best || compareScore(s, best) > 0) best = s;
+  }
+  return best;
+}
+const HAND_NAMES = ['高牌', '一对', '两对', '三条', '顺子', '同花', '葫芦', '四条', '同花顺'];
+function handName(score, cards7) {
+  if (score[0] === 8 && score[1] === 14) return '皇家同花顺';
+  return HAND_NAMES[score[0]];
+}
+
+// ---------- 机器人 AI ----------
+function botStrength(botHole, community, rng) {
+  if (community.length >= 3) {
+    const s = evaluateBest(botHole.concat(community));
+    let v = s[0] / 8 + (s[1] || 0) / 200;
+    // 有听牌潜力给一点加分（4 张同花 / 4 张连张粗略判断）
+    return Math.min(1, v + rng() * 0.05);
+  }
+  const [a, b] = botHole.map(c => c.r).sort((x, y) => y - x);
+  let v;
+  if (a === b) v = 0.45 + (a / 14) * 0.4;                    // 口袋对
+  else v = (a / 14) * 0.38 + (b / 14) * 0.14;                // 高牌
+  if (botHole[0].s === botHole[1].s) v += 0.05;              // 同花
+  if (Math.abs(a - b) === 1) v += 0.04;                      // 连张
+  return Math.min(1, v);
+}
+// 返回 'fold' | 'call' | 'raise'（call 在 toCall=0 时即让牌）
+function botDecide(strength, toCall, pot, rng) {
+  if (toCall === 0) {
+    if (strength > 0.62) return 'raise';
+    if (strength < 0.22 && rng() < 0.12) return 'raise';     // 偶尔诈唬
+    return 'call';
+  }
+  const pricey = toCall > pot * 0.9;
+  if (strength > (pricey ? 0.55 : 0.5)) return 'raise';
+  if (strength > (pricey ? 0.38 : 0.28)) return 'call';
+  if (rng() < 0.08) return 'call';                           // 偶尔不信邪跟一把
+  return 'fold';
+}
+
+// ---------- 一手牌状态机 ----------
+class PokerHand {
+  constructor(opts) {
+    this.rng = opts.rng || Math.random;
+    this.raiseSize = opts.raiseSize || 40;
+    const sb = opts.smallBlind || 10, bb = opts.bigBlind || 20;
+    this.playerStack = opts.playerStack; this.botStack = opts.botStack;
+    const deck = shuffle(createDeck(), this.rng);
+    this._deck = deck; this._next = 0;
+    const draw = () => this._deck[this._next++];
+    this.playerHole = [draw(), draw()]; this.botHole = [draw(), draw()];
+    this.community = [];
+    this.pot = 0; this.playerBet = 0; this.botBet = 0;
+    this.playerContrib = 0; this.botContrib = 0;
+    this.street = 0; // 0 翻前 1 翻牌 2 转牌 3 河牌
+    this.phase = 'player'; // player | respond | over
+    this.botRaisedThisHand = false;
+    this.playerRaisedThisHand = false;
+    this.lastBotAction = null; this.result = null; this.swapped = false;
+    this._contribute('player', sb); this._contribute('bot', bb);
+  }
+  _contribute(side, amount) {
+    const stackKey = side === 'player' ? 'playerStack' : 'botStack';
+    const real = Math.max(0, Math.min(amount, this[stackKey]));
+    this[stackKey] -= real; this.pot += real;
+    if (side === 'player') { this.playerBet += real; this.playerContrib += real; }
+    else { this.botBet += real; this.botContrib += real; }
+    return real;
+  }
+  toCall() { return this.phase === 'respond' ? this.botBet - this.playerBet : this.botBet - this.playerBet; }
+  totalChips() { return this.playerStack + this.botStack + this.pot; }
+  swapPlayerCard() {
+    if (this.swapped || this.phase === 'over') return false;
+    this.playerHole[1] = this._deck[this._next++];
+    this.swapped = true; return true;
+  }
+  playerAct(action) {
+    if (this.phase === 'over') return;
+    if (action === 'fold') return this._endByFold('bot');
+    if (this.phase === 'respond') {
+      // 只剩 跟注 / 弃牌 两个选择
+      if (action === 'call' || action === 'check') { this._contribute('player', this.toCall()); return this._advanceStreet(); }
+      return;
+    }
+    if (action === 'raise') {
+      this.playerRaisedThisHand = true;
+      this._contribute('player', this.toCall());
+      this._contribute('player', this.raiseSize);
+      // 机器人对加注只回应一次：弃 / 跟（不反加，简化规则）
+      const s = botStrength(this.botHole, this.community, this.rng);
+      const d = botDecide(s, this.playerBet - this.botBet, this.pot, this.rng);
+      if (d === 'fold') { this.lastBotAction = 'fold'; return this._endByFold('player'); }
+      this.lastBotAction = 'call';
+      this._contribute('bot', this.playerBet - this.botBet);
+      return this._advanceStreet();
+    }
+    if (action === 'call' || action === 'check') {
+      this._contribute('player', this.toCall());
+      if (this.playerStack === 0 || this.botStack === 0) return this._runOut();
+      // 机器人回合：让牌，或加注一次把决定推回给玩家
+      const s = botStrength(this.botHole, this.community, this.rng);
+      const d = botDecide(s, 0, this.pot, this.rng);
+      if (d === 'raise') {
+        this.botRaisedThisHand = true; this.lastBotAction = 'raise';
+        this._contribute('bot', this.raiseSize);
+        if (this.botStack === 0 || this.playerStack === 0) {
+          // 机器人全下式加注：玩家若筹码已空则直接摊牌，否则仍需回应
+          if (this.playerStack === 0) return this._runOut();
+        }
+        this.phase = 'respond'; return;
+      }
+      this.lastBotAction = 'check';
+      return this._advanceStreet();
+    }
+  }
+  _advanceStreet() {
+    this.playerBet = 0; this.botBet = 0;
+    if (this.playerStack === 0 || this.botStack === 0) return this._runOut();
+    this.street++;
+    if (this.street === 1) { this.community.push(this._deck[this._next++], this._deck[this._next++], this._deck[this._next++]); }
+    else if (this.street === 2 || this.street === 3) { this.community.push(this._deck[this._next++]); }
+    else if (this.street >= 4) return this._showdown();
+    this.phase = 'player';
+  }
+  _runOut() {
+    while (this.community.length < 5) this.community.push(this._deck[this._next++]);
+    this.street = 3;
+    return this._showdown();
+  }
+  _endByFold(winner) {
+    if (winner === 'player') this.playerStack += this.pot; else this.botStack += this.pot;
+    this.result = { winner, byFold: true, potWon: this.pot };
+    this.pot = 0; this.phase = 'over';
+  }
+  _showdown() {
+    const ps = evaluateBest(this.playerHole.concat(this.community));
+    const bs = evaluateBest(this.botHole.concat(this.community));
+    const cmp = compareScore(ps, bs);
+    const potWon = this.pot;
+    let winner = 'tie';
+    if (cmp > 0) { winner = 'player'; this.playerStack += this.pot; }
+    else if (cmp < 0) { winner = 'bot'; this.botStack += this.pot; }
+    else { const half = Math.floor(this.pot / 2); this.playerStack += half; this.botStack += this.pot - half; }
+    this.result = {
+      winner, byFold: false, potWon,
+      playerScore: ps, botScore: bs,
+      playerHand: handName(ps), botHand: handName(bs),
+      botBluffWin: winner === 'bot' && bs[0] <= 1 && this.botRaisedThisHand,
+      playerBluffWin: winner === 'player' && ps[0] <= 1 && this.playerRaisedThisHand
+    };
+    this.pot = 0; this.phase = 'over';
+  }
+}
+
+const PokerEngine = { createDeck, shuffle, evaluate5, evaluateBest, compareScore, handName, botStrength, botDecide, PokerHand, HAND_NAMES };
+if (typeof module !== 'undefined' && module.exports) module.exports = PokerEngine;
+if (typeof window !== 'undefined') window.PokerEngine = PokerEngine;
+
+</script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0;}
+body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #0b1410; color: #eafff3; min-height: 100vh;}
+.wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 60px;}
+h1 { font-size: 26px;} h1.accent { color: #34d399;}
+.sub { color: #9fd8bb; font-size: 13px; margin-top: 5px; line-height: 1.6;}
+.table { background: radial-gradient(ellipse at center, #177a4c 0%, #0d4d2e 70%, #093d24 100%); border: 10px solid #5b3a1e; border-radius: 160px; padding: 26px 20px; margin-top: 18px; text-align: center; box-shadow: 0 12px 40px rgba(0,0,0,.5);}
+.cards { display: flex; gap: 7px; justify-content: center; min-height: 74px; align-items: center; flex-wrap: wrap;}
+.card { width: 50px; height: 70px; background: #fff; color: #111; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 700; font-size: 17px; line-height: 1.15; box-shadow: 0 2px 6px rgba(0,0,0,.35);}
+.card.red { color: #d21f3c;}
+.card.back { background: repeating-linear-gradient(45deg, #274690, #274690 6px, #1b2f63 6px, #1b2f63 12px); color: transparent; border: 2px solid #dbe4ff;}
+.card.empty { background: rgba(255,255,255,.08); color: rgba(255,255,255,.35); border: 1.5px dashed rgba(255,255,255,.35); box-shadow: none; font-size: 12px;}
+.who { font-size: 13px; color: #d9ffe9; margin: 8px 0 6px;}
+.who b { color: #fff;}
+.pot { display: inline-block; background: rgba(0,0,0,.45); padding: 5px 16px; border-radius: 999px; font-weight: 700; color: #ffd95e; margin: 10px 0; font-size: 15px;}
+.bubble { background: #fff; color: #14342a; border-radius: 12px; padding: 8px 13px; font-size: 13.5px; display: inline-block; max-width: 430px; line-height: 1.5;}
+.panel { background: #12241b; border: 1px solid #1f4430; border-radius: 14px; padding: 15px; margin-top: 16px;}
+.actions { display: flex; gap: 9px; flex-wrap: wrap;}
+button { background: #34d399; color: #06281a; border: 0; border-radius: 10px; padding: 11px 17px; font-size: 14.5px; font-weight: 700; cursor: pointer;}
+button:hover { filter: brightness(1.08);}
+button.warn { background: #f87171; color: #3d0a0a;}
+button.gold { background: #fbbf24; color: #3a2703;}
+button.ghost { background: transparent; border: 1px solid #2b5a40; color: #b9ecd2;}
+button:disabled { opacity:.45; cursor: not-allowed;}
+.prop { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;}
+.prop.icon { font-size: 26px;}
+.log { font-size: 13.5px; color: #b9ecd2; line-height: 1.75; white-space: pre-wrap;}
+.banner { display: none; background: linear-gradient(90deg, #f59e0b, #ef4444); color: #fff; font-weight: 800; text-align: center; padding: 11px; border-radius: 12px; margin-top: 16px; font-size: 15px;}
+.stats { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13.5px; color: #b9ecd2;}
+.stats b { color: #fff; font-size: 16px;}
+.badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px;}
+.badge { padding: 5px 11px; border-radius: 999px; font-size: 12.5px; border: 1px solid #2b5a40; color: #6f9c84;}
+.badge.on { background: #14532d; color: #ffd95e; border-color: #ffd95e; font-weight: 700;}
+details { margin-top: 14px; color: #9fd8bb; font-size: 13px; line-height: 1.7;}
+details input { width: 100%; margin-top: 8px; background: #0a1a12; border: 1px solid #2b5a40; border-radius: 8px; color: #fff; padding: 9px 11px; font-family: ui-monospace, Menlo, monospace; font-size: 12px;}
+.row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; gap: 10px; flex-wrap: wrap;}
+a { color: #34d399;}
+.card.deal { animation: dealIn .5s ease-out; }
+.card.flip { animation: flipIn .55s ease; }
+@keyframes dealIn { from { transform: translateY(-120px) scale(.55) rotate(-10deg); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes flipIn { 0% { transform: rotateY(90deg) scale(.92); } 100% { transform: rotateY(0) scale(1); } }
+.deck { text-align: center; font-size: 13px; color: #d9ffe9; margin-top: 9px; opacity: .9; letter-spacing: 3px; }
+.deck.dealing { animation: deckShake .22s ease-in-out infinite alternate; }
+@keyframes deckShake { from { transform: rotate(-2.5deg); } to { transform: rotate(2.5deg) translateY(-2px); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Monad <span class="accent">Poker</span> · 德州扑克 <span id="streakFlame" style="font-size:19px"></span></h1>
+<p class="sub">单挑机器人版 · 备用项目。每人 1000 筹码，盲注 10/20。每手随机一张道具卡，赢了攒成就，战绩还能上链存证。</p>
+
+<div id="banner" class="banner"></div>
+
+<div class="table">
+<div class="who">🤖 <b>机器人阿莫</b> · 筹码 <b id="botStack">1000</b><span id="botHandName" style="color:#ffd95e"></span></div>
+<div id="botTalk"><span class="bubble">坐下吧，我让你先看两张牌。</span></div>
+<div id="deck" class="deck">🎴 荷 官 🎴</div>
+<div class="cards" id="botCards" style="margin-top:10px"></div>
+<div><span class="pot">奖池 <span id="pot">0</span> · <span id="streetName">翻前</span></span></div>
+<div class="cards" id="community"></div>
+<div class="cards" id="playerCards" style="margin-top:8px"></div>
+<div class="who">🧑 <b>你</b> · 筹码 <b id="playerStack">1000</b> · 本手已投入 <b id="playerContrib">0</b><span id="playerHandName" style="color:#ffd95e"></span></div>
+</div>
+
+<div class="panel">
+<div class="actions" id="actions">
+<button id="foldBtn" class="warn">弃牌</button>
+<button id="callBtn">让牌</button>
+<button id="raiseBtn" class="gold">加注 +40</button>
+<button id="nextBtn" style="display:none">下一手</button>
+<button id="resetBtn" class="ghost">重开整场（筹码回 1000）</button>
+</div>
+<div class="prop" style="margin-top:13px">
+<span class="icon" id="propIcon">🎴</span>
+<span style="flex:1; min-width:200px; font-size:13.5px; color:#b9ecd2" id="propDesc">道具卡：本手发牌后抽一张</span>
+<button id="propBtn" class="ghost" disabled>使用道具</button>
+</div>
+</div>
+
+<div class="panel"><div class="log" id="log">点“下一手”或直接开始：第一手马上发牌。</div></div>
+
+<div class="panel">
+<div class="stats">
+<span>已打 <b id="statGames">0</b> 手</span>
+<span>赢 <b id="statWins">0</b> 手</span>
+<span>连胜 <b id="statStreak">0</b></span>
+<span>最大牌型 <b id="statBest">-</b></span>
+<span>待上链 <b id="statPending">0</b> 手</span>
+</div>
+<div class="badges" id="badges"></div>
+<details>
+<summary>战绩上链（可选）：填入 MonadPokerScore 合约地址后，把待上链战绩一键存到 Monad 测试网</summary>
+<input id="contractInput" placeholder="0x 开头的合约地址（部署步骤看 README）">
+<div class="row">
+<span>网络：Monad Testnet · Chain ID 10143</span>
+<span>
+<button id="saveContractBtn" class="ghost">保存地址</button>
+<button id="submitScoreBtn" class="ghost">提交待上链战绩</button>
+</span>
+</div>
+<div class="row"><span id="chainStatus"></span></div>
+</details>
+</div>
+</div>
+
+<script>
+const E = window.PokerEngine;
+const $ = id => document.getElementById(id);
+const SUITS = ['♠', '♥', '♦', '♣'];
+const RANKS = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A'};
+const STREETS = ['翻前', '翻牌', '转牌', '河牌'];
+const PROPS = [
+{ id: 'peek', icon: '👀', name: '透视眼', desc: '偷看机器人的一张底牌'},
+{ id: 'swap', icon: '🔄', name: '乾坤大挪移', desc: '把你的第二张底牌换成牌堆里下一张'},
+{ id: 'double', icon: '✖️2', name: '双倍奖池', desc: '本手赢家额外从庄家奖池拿到等同奖池的奖励'},
+{ id: 'shield', icon: '🛡️', name: '护盾', desc: '本手输了，返还你投入的一半'}
+];
+const ACHIEVEMENTS = [
+{ id: 'first_win', name: '🏆 第一胜'},
+{ id: 'streak3', name: '🔥 三连胜'},
+{ id: 'allin_win', name: '💥 全下获胜'},
+{ id: 'flush_plus', name: '🌊 同花以上'},
+{ id: 'fullhouse_plus', name: '🏠 葫芦以上'},
+{ id: 'bluff_win', name: '🎭 诈唬成功'},
+{ id: 'hands10', name: '🎲 打满 10 手'}
+];
+const TALK = {
+deal: ['新的一手，运气也是实力的一部分。', '发牌了，别光看牌，看我脸色。', '这手我有预感，你小心。'],
+botRaise: ['我加注了，跟不跟？', '加点压力给你，年轻人。', '怕了？怕了就放下牌。'],
+botCheck: ['我让一下，别得意。', '先看看，不急。'],
+botFold: ['这手让给你，算你狠。', '我撤，别笑，下一手见。'],
+botWin: ['说了吧，姜还是老的辣。', '筹码拿来，谢谢老板。'],
+botLose: ['不可能……这手算你运气好。', '行，这把记账上了。'],
+bluffCaught: ['哈，我刚才是诈唬的，吓到了吧？', '牌不大，胆够大，这就是扑克。'],
+playerBig: ['等等，你这牌……有点东西。', '这手我服，心服口服。']
+};
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+};
+
+// ---------- 持久状态 ----------
+let save = JSON.parse(store.get('monadpoker_save') || '{}');
+let stats = save.stats || { games: 0, wins: 0, best: -1};
+let streak = save.streak || 0;
+let unlocked = new Set(save.unlocked || []);
+let pending = save.pending || { games: 0, wins: 0, best: -1};
+function persist() { store.set('monadpoker_save', JSON.stringify({ stats, streak, unlocked: [...unlocked], pending })); }
+
+// ---------- 对局状态 ----------
+let playerStack = 1000, botStack = 1000;
+let hand = null, prop = null, propUsed = false, peekOn = false, settled = false, playerWentAllIn = false;
+let dealing = false, dealStep = 0, dealTimer = null, animLock = false, flipFrom = 99, revealFlip = false;
+
+function cardHtml(c, faceDown, cls) {
+if (faceDown) return '<div class="card back' + (cls ? ' ' + cls : '') + '">?</div>';
+if (!c) return '<div class="card empty">待发</div>';
+const red = c.s === 1 || c.s === 2;
+return '<div class="card' + (red? ' red': '') + (cls? ' ' + cls: '') + '"><span>' + (RANKS[c.r] || c.r) + '</span><span>' + SUITS[c.s] + '</span></div>';
+}
+function talk(t) { $('botTalk').innerHTML = '<span class="bubble">🤖 ' + t + '</span>';}
+function log(t) { $('log').textContent = t;}
+function banner(t) { const b = $('banner'); b.textContent = t; b.style.display = 'block'; setTimeout(() => b.style.display = 'none', 3400);}
+function blip(freq) { try { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; blip.ctx = blip.ctx || new AC(); const o = blip.ctx.createOscillator(), g = blip.ctx.createGain(); o.frequency.value = freq || 540; g.gain.value = 0.035; o.connect(g); g.connect(blip.ctx.destination); o.start(); g.gain.exponentialRampToValueAtTime(0.0001, blip.ctx.currentTime + 0.08); o.stop(blip.ctx.currentTime + 0.09); } catch (e) {} }
+
+function render() {
+$('botStack').textContent = hand? hand.botStack: botStack;
+$('playerStack').textContent = hand? hand.playerStack: playerStack;
+$('playerContrib').textContent = hand? hand.playerContrib: 0;
+$('pot').textContent = hand? hand.pot: 0;
+$('streetName').textContent = hand? (hand.phase === 'over'? '本手结束': STREETS[hand.street]): '未开始';
+const showBot = hand && (hand.phase === 'over');
+const botShown = !hand ? 0 : (dealing ? (dealStep >= 3 ? 2 : dealStep >= 1 ? 1 : 0) : 2);
+const playerShown = !hand ? 0 : (dealing ? (dealStep >= 4 ? 2 : dealStep >= 2 ? 1 : 0) : 2);
+$('botCards').innerHTML = [0, 1].map(i => {
+if (!hand || i >= botShown) return '<div class="card empty">·</div>';
+const justDealt = dealing && ((dealStep === 1 && i === 0) || (dealStep === 3 && i === 1));
+return cardHtml(hand.botHole[i], !(showBot || (peekOn && i === 0)), justDealt ? 'deal' : (revealFlip && showBot ? 'flip' : ''));
+}).join('');
+$('deck').className = 'deck' + (dealing ? ' dealing' : '');
+$('community').innerHTML = [0, 1, 2, 3, 4].map(i => hand && hand.community[i]? cardHtml(hand.community[i], false, i >= flipFrom ? 'flip' : ''): cardHtml(null)).join('');
+$('playerCards').innerHTML = [0, 1].map(i => {
+if (!hand || i >= playerShown) return '<div class="card empty">·</div>';
+const justDealt = dealing && ((dealStep === 2 && i === 0) || (dealStep === 4 && i === 1));
+return cardHtml(hand.playerHole[i], false, justDealt ? 'flip' : '');
+}).join('');
+$('botHandName').textContent = hand && hand.phase === 'over' && hand.result &&!hand.result.byFold? ' · ' + hand.result.botHand: '';
+$('playerHandName').textContent = hand && hand.phase === 'over' && hand.result &&!hand.result.byFold? ' · 你是' + hand.result.playerHand: '';
+const inHand = hand && hand.phase!== 'over';
+$('foldBtn').style.display = inHand? '': 'none';
+$('callBtn').style.display = inHand? '': 'none';
+$('raiseBtn').style.display = inHand? '': 'none';
+$('nextBtn').style.display = inHand? 'none': '';
+$('nextBtn').textContent = hand? '下一手': '开始第一手';
+if (inHand) {
+const tc = hand.toCall();
+$('callBtn').textContent = hand.phase === 'respond'? ('跟注 ' + tc): (tc > 0? '跟注 ' + tc: '让牌');
+$('raiseBtn').disabled = hand.phase === 'respond' || animLock || dealing;
+$('foldBtn').disabled = animLock || dealing;
+$('callBtn').disabled = animLock || dealing;
+$('raiseBtn').textContent = hand.playerStack <= tc + hand.raiseSize? '全下！': '加注 +40';
+}
+$('propBtn').disabled = !(inHand && prop && !propUsed) || animLock || dealing;
+$('statGames').textContent = stats.games;
+$('statWins').textContent = stats.wins;
+$('statStreak').textContent = streak;
+$('statBest').textContent = stats.best >= 0? E.HAND_NAMES[stats.best]: '-';
+$('statPending').textContent = pending.games;
+$('streakFlame').textContent = streak >= 2? '🔥×' + streak: '';
+$('badges').innerHTML = ACHIEVEMENTS.map(a =>
+'<span class="badge' + (unlocked.has(a.id)? ' on': '') + '">' + a.name + (unlocked.has(a.id)? '': ' · 未解锁') + '</span>').join('');
+}
+
+function unlock(id) {
+if (unlocked.has(id)) return;
+unlocked.add(id);
+const a = ACHIEVEMENTS.find(x => x.id === id);
+banner('🎉 成就解锁：' + a.name);
+}
+
+function newHand() {
+if (playerStack < 20 || botStack < 20) { log('有一方筹码不够下盲注了，点“重开整场”把筹码补回 1000。'); return;}
+hand = new E.PokerHand({ playerStack, botStack, rng: Math.random});
+prop = PROPS[Math.floor(Math.random() * PROPS.length)];
+propUsed = false; peekOn = false; settled = false; playerWentAllIn = false;
+$('propIcon').textContent = prop.icon;
+$('propDesc').textContent = '道具卡：' + prop.desc + '（每手限用一次）';
+$('propBtn').textContent = '使用道具';
+talk(pick(TALK.deal));
+log('第 ' + (stats.games + 1) + ' 手。你是小盲 10，机器人大盲 20，跟注 10 开始。抽到的道具卡：' + prop.name + '。荷官发牌中…');
+dealing = true; dealStep = 0; flipFrom = 99; revealFlip = false;
+if (dealTimer) clearInterval(dealTimer);
+render();
+dealTimer = setInterval(() => {
+dealStep++; blip(460 + dealStep * 70);
+if (dealStep >= 4) { clearInterval(dealTimer); dealTimer = null; dealing = false; log('牌发完了，看你的牌行动：跟注、加注或者弃牌。'); }
+render();
+}, 300);
+}
+
+function settleFun() {
+// 趣味结算层：双倍 / 护盾 / 连胜奖励 / 成就，都在引擎结算之后额外处理（庄家奖池出钱，不动对方筹码）
+const r = hand.result;
+let p = hand.playerStack, b = hand.botStack;
+const notes = [];
+if (propUsed && prop.id === 'double' && r.winner!== 'tie') {
+if (r.winner === 'player') { p += r.potWon; notes.push('✖️2 双倍卡生效：庄家奖池额外奖励你 ' + r.potWon + '！');}
+else { b += r.potWon; notes.push('✖️2 双倍卡生效：机器人额外拿走 ' + r.potWon + '，亏大了。');}
+}
+if (propUsed && prop.id === 'shield' && r.winner === 'bot') {
+const refund = Math.floor(hand.playerContrib / 2);
+p += refund; notes.push('🛡️ 护盾生效：返还你投入的一半 ' + refund + '。');
+}
+stats.games++; pending.games++;
+if (r.winner === 'player') {
+stats.wins++; pending.wins++; streak++;
+unlock('first_win');
+if (streak >= 3) { unlock('streak3'); if (streak % 3 === 0) { p += 30; notes.push('🔥 ' + streak + ' 连胜！连胜奖励 +30 筹码。');}}
+if (playerWentAllIn &&!r.byFold) unlock('allin_win');
+if (r.playerBluffWin) unlock('bluff_win');
+} else if (r.winner === 'bot') { streak = 0;}
+if (!r.byFold && r.playerScore) {
+const cat = r.playerScore[0];
+if (cat > stats.best) stats.best = cat;
+if (cat > pending.best) pending.best = cat;
+if (cat >= 5) unlock('flush_plus');
+if (cat >= 6) unlock('fullhouse_plus');
+if (cat >= 5) banner('🌟 你打出了' + r.playerHand + '！');
+}
+if (stats.games >= 10) unlock('hands10');
+playerStack = p; botStack = b;
+persist();
+return notes;
+}
+
+function afterAction() {
+if (!hand) return;
+if (hand.playerStack === 0) playerWentAllIn = true;
+if (hand.lastBotAction === 'raise') talk(pick(TALK.botRaise));
+else if (hand.lastBotAction === 'fold') talk(pick(TALK.botFold));
+else if (hand.lastBotAction === 'check') talk(pick(TALK.botCheck));
+hand.lastBotAction = null;
+if (hand.phase === 'over' &&!settled) {
+settled = true;
+const r = hand.result;
+const notes = settleFun();
+let msg;
+if (r.byFold) msg = r.winner === 'player'? '机器人弃牌，你赢下奖池 ' + r.potWon + '。': '你弃牌，机器人拿走奖池 ' + r.potWon + '。';
+else if (r.winner === 'tie') msg = '平局，分奖池。你是' + r.playerHand + '，机器人是' + r.botHand + '。';
+else if (r.winner === 'player') msg = '你赢了 ' + r.potWon + '！你是' + r.playerHand + '，机器人是' + r.botHand + '。';
+else msg = '机器人赢走 ' + r.potWon + '。它是' + r.botHand + '，你是' + r.playerHand + '。';
+if (r.botBluffWin) { talk(pick(TALK.bluffCaught));}
+else if (r.winner === 'player') talk(r.playerScore && r.playerScore[0] >= 5? pick(TALK.playerBig): pick(TALK.botLose));
+else if (r.winner === 'bot' &&!r.byFold) talk(pick(TALK.botWin));
+log([msg].concat(notes).join('\n'));
+if (playerStack < 20) log($('log').textContent + '\n你的筹码不够下盲注了，点“重开整场”补回 1000（战绩保留）。');
+else if (botStack < 20) log($('log').textContent + '\n机器人筹码不够下盲注了，点“重开整场”补满它（战绩保留）。');
+}
+render();
+}
+
+function act(a) {
+if (!hand || hand.phase === 'over' || dealing || animLock) return;
+const prevComm = hand.community.length;
+hand.playerAct(a);
+if (hand.community.length > prevComm) {
+flipFrom = prevComm; blip(680); animLock = true;
+setTimeout(() => { flipFrom = 99; animLock = false; render(); }, 640);
+}
+if (hand.phase === 'over' && hand.result && !hand.result.byFold) {
+revealFlip = true;
+setTimeout(() => { revealFlip = false; }, 800);
+}
+afterAction();
+}
+
+$('foldBtn').addEventListener('click', () => act('fold'));
+$('callBtn').addEventListener('click', () => act('call'));
+$('raiseBtn').addEventListener('click', () => act('raise'));
+$('nextBtn').addEventListener('click', newHand);
+$('resetBtn').addEventListener('click', () => { if (dealTimer) { clearInterval(dealTimer); dealTimer = null; } dealing = false; animLock = false; flipFrom = 99; revealFlip = false; playerStack = 1000; botStack = 1000; hand = null; log('已重开整场，双方筹码回 1000。战绩和成就保留。'); render();});
+$('propBtn').addEventListener('click', () => {
+if (!hand ||!prop || propUsed) return;
+if (prop.id === 'peek') { peekOn = true; propUsed = true; talk('哼，你都看到我一张牌了，公平呢？'); log('👀 透视眼生效：机器人左边那张底牌已经翻开给你看。');}
+else if (prop.id === 'swap') { if (hand.swapPlayerCard()) { propUsed = true; log('🔄 乾坤大挪移生效：你的第二张底牌已经换掉。');} else { log('这手已经换过了。'); return;}}
+else if (prop.id === 'double') { propUsed = true; log('✖️2 双倍卡已激活：本手赢家额外拿一份等同奖池的奖励。');}
+else if (prop.id === 'shield') { propUsed = true; log('🛡️ 护盾已激活：本手输了返还一半投入。');}
+$('propBtn').textContent = '已使用';
+render();
+});
+
+// ---------- 战绩上链（可选，和留言墙同一套路） ----------
+const SCORE_ABI = ['function recordMatch(uint256 games, uint256 wins, uint8 bestHandRank)'];
+let scoreAddress = store.get('monadpoker_contract') || '';
+if (scoreAddress) $('contractInput').value = scoreAddress;
+$('saveContractBtn').addEventListener('click', () => {
+const v = $('contractInput').value.trim();
+if (v &&!/^0x[0-9a-fA-F]{40}$/.test(v)) { $('chainStatus').textContent = '地址格式不对，要 0x 开头共 42 位。'; return;}
+scoreAddress = v; store.set('monadpoker_contract', v);
+$('chainStatus').textContent = v? '已保存合约地址。': '已清空。';
+});
+$('submitScoreBtn').addEventListener('click', async () => {
+const st = $('chainStatus');
+if (!scoreAddress) { st.textContent = '先填合约地址（部署步骤看 README），没部署就先攒着，待上链手数不会丢。'; return;}
+if (pending.games === 0) { st.textContent = '现在没有待上链的战绩，先打几手。'; return;}
+if (!window.ethereum ||!window.ethers) { st.textContent = '没检测到钱包插件（MetaMask）。'; return;}
+try {
+const provider = new ethers.BrowserProvider(window.ethereum);
+try { await provider.send('wallet_switchEthereumChain', [{ chainId: '0x279f'}]);}
+catch (e) { if (e.code === 4902) await provider.send('wallet_addEthereumChain', [{ chainId: '0x279f', chainName: 'Monad Testnet', rpcUrls: ['https://testnet-rpc.monad.xyz'], nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18}, blockExplorerUrls: ['https://testnet.monadvision.com']}]); else throw e;}
+const signer = await provider.getSigner();
+const contract = new ethers.Contract(scoreAddress, SCORE_ABI, signer);
+st.textContent = '钱包确认后提交中…';
+const tx = await contract.recordMatch(pending.games, pending.wins, Math.max(0, pending.best));
+await tx.wait();
+st.textContent = '已上链，交易哈希：' + tx.hash;
+pending = { games: 0, wins: 0, best: -1}; persist(); render();
+} catch (e) { st.textContent = '提交失败：' + (e.shortMessage || e.message);}
+});
+
+render();
+</script>
+</body>
+</html>
