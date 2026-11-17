@@ -145,6 +145,12 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 .modalCard p { color: #c9f2da; font-size: 14px; line-height: 1.65; margin: 6px 0; }
 .modalCard input[type=range] { width: 100%; accent-color: #ffd95e; margin: 10px 0 2px; }
 .modalCard .big { font-size: 26px; font-weight: 800; color: #ffd95e; }
+.table .propCard { position: absolute; left: 18px; bottom: 12px; width: 104px; transform: rotate(-6deg); z-index: 6; touch-action: none; }
+.table .propCard:hover { transform: rotate(-6deg) translateY(-4px); }
+.table .propCard.dragging { transition: none; z-index: 40; }
+#betZone.dropHot { border-color: #ffd95e; background: rgba(255,217,94,.10); }
+#community.dropHot { outline: 2px dashed #ffd95e; outline-offset: 4px; border-radius: 12px; }
+.hint .log { max-height: 330px; overflow-y: auto; margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -165,8 +171,14 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 <div id="betZone"><div class="betLabel">🎯 你的下注区 · 点的筹码会掉落在这里</div><div id="betPile"></div></div>
 <div class="cards" id="playerCards" style="margin-top:8px"></div>
 <div class="who">🧑 <b>你</b> · 筹码 <b id="playerStack">1000</b> · 本手已投入 <b id="playerContrib">0</b><span id="playerDebt" style="color:#ff9d9d"></span><span id="playerHandName" style="color:#ffd95e"></span></div>
+<div id="propCard" class="propCard disabled">
+<div class="art" id="propIcon">🎴</div>
+<div class="pname" id="propName">道具卡</div>
+<div class="pdesc" id="propCardDesc">发牌后抽一张</div>
+<div class="stamp" id="propStamp" style="display:none">已打出</div>
 </div>
-<aside class="hint" id="hintPanel"><div class="hintTitle">📢 提示播报</div><div id="hintBody"><div class="hintLine">开始一手后，这里会播报你的牌能凑出什么牌型。</div></div></aside>
+</div>
+<aside class="hint" id="hintPanel"><div class="hintTitle">📢 提示播报</div><div id="hintBody"><div class="hintLine">开始一手后，这里会播报你的牌能凑出什么牌型。</div></div><div class="hintTitle" style="margin-top:16px">📜 牌局日志</div><div class="log" id="log">点“下一手”或直接开始：第一手马上发牌。</div></aside>
 </div>
 
 <div class="panel">
@@ -190,20 +202,13 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 <div class="raiseInfo">已选加注：+<span id="raiseAmtVal">40</span> · 点圆筹码往上加，攒好按“加注”按钮打出去</div>
 </div>
 <div class="propArea">
-<div id="propCard" class="propCard disabled">
-<div class="art" id="propIcon">🎴</div>
-<div class="pname" id="propName">道具卡</div>
-<div class="pdesc" id="propCardDesc">发牌后抽一张</div>
-<div class="stamp" id="propStamp" style="display:none">已打出</div>
-</div>
 <div class="propSide">
-<div id="propDesc">道具卡：本手发牌后抽一张，点卡牌打出去。</div>
-<div class="propHint">👆 点左边这张实体卡打出去，卡会飞到牌桌中央生效，每手限用一次。</div>
+<div id="propDesc">道具卡：本手发牌后抽一张。</div>
+<div class="propHint">👆 道具卡就放在牌桌左下角：点它，或者把它拖到奖池 / 下注区松手，都能打出去，每手限用一次。</div>
 </div>
 </div>
 </div>
 
-<div class="panel"><div class="log" id="log">点“下一手”或直接开始：第一手马上发牌。</div></div>
 
 <div class="panel">
 <div class="stats">
@@ -549,7 +554,7 @@ propUsed = false; peekOn = false; settled = false; playerWentAllIn = false;
 $('propIcon').textContent = prop.icon;
 $('propName').textContent = prop.name;
 $('propCardDesc').textContent = prop.desc;
-$('propDesc').textContent = '道具卡【' + prop.name + '】：' + prop.desc + '。点左边这张实体卡打出去。';
+$('propDesc').textContent = '道具卡【' + prop.name + '】：' + prop.desc + '。点牌桌左下角的卡，或把它拖到奖池区打出去。';
 talk(pick(TALK.deal));
 log('第 ' + (stats.games + 1) + ' 手。你是小盲 10，机器人大盲 20，跟注 10 开始。抽到的道具卡：' + prop.name + '。荷官发牌中…' + (brain.lines.length ? '\n' + brain.lines.join('\n') : ''));
 raiseAmt = 40; clearPile(false);
@@ -768,7 +773,41 @@ animLock = true; render();
 blip(880);
 flyPropCard(() => { applyPropEffect(); animLock = false; render(); });
 }
-$('propCard').addEventListener('click', playPropCard);
+let propDrag = null, suppressPropClick = false;
+$('propCard').addEventListener('click', () => { if (suppressPropClick) { suppressPropClick = false; return; } playPropCard(); });
+function overDropZone(x, y) {
+return [$('betZone'), $('community')].some(el => { if (!el) return false; const r = el.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; });
+}
+$('propCard').addEventListener('pointerdown', e => {
+if ($('propCard').classList.contains('disabled') || $('propCard').classList.contains('used')) return;
+propDrag = { x: e.clientX, y: e.clientY, moved: false };
+$('propCard').classList.add('dragging');
+});
+window.addEventListener('pointermove', e => {
+if (!propDrag) return;
+const dx = e.clientX - propDrag.x, dy = e.clientY - propDrag.y;
+if (Math.abs(dx) + Math.abs(dy) > 6) propDrag.moved = true;
+if (propDrag.moved) {
+$('propCard').style.transform = 'translate(' + dx + 'px,' + dy + 'px) rotate(-2deg) scale(1.06)';
+const hot = overDropZone(e.clientX, e.clientY);
+$('betZone').classList.toggle('dropHot', hot);
+$('community').classList.toggle('dropHot', hot);
+}
+});
+window.addEventListener('pointerup', e => {
+if (!propDrag) return;
+const wasMoved = propDrag.moved;
+const hot = wasMoved && overDropZone(e.clientX, e.clientY);
+propDrag = null;
+$('propCard').classList.remove('dragging');
+$('betZone').classList.remove('dropHot');
+$('community').classList.remove('dropHot');
+if (wasMoved) {
+suppressPropClick = true;
+$('propCard').style.transform = '';
+if (hot) playPropCard();
+}
+});
 
 // ---------- 战绩上链（可选，和留言墙同一套路） ----------
 const SCORE_ABI = ['function recordMatch(uint256 games, uint256 wins, uint8 bestHandRank)'];
