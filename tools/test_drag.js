@@ -14,6 +14,7 @@ const fs = require('fs');
 
   eq('prop hand is on the table', !!doc.querySelector('.table #propHand .propCard'), true);
   eq('four prop cards dealt at match start', doc.querySelectorAll('#propHand .propCard').length, 4);
+  eq('fan layout css present', html.includes('--rot: -13deg') && html.includes('scale(1.45)') && html.includes('transform-origin: 50% 118%'), true);
   eq('no prop cards below the table', !!doc.querySelector('.propArea .propCard'), false);
   eq('log lives in the right sidebar', $('hintPanel').contains($('log')), true);
 

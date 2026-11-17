@@ -376,14 +376,17 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 .modalCard p { color: #c9f2da; font-size: 14px; line-height: 1.65; margin: 6px 0; }
 .modalCard input[type=range] { width: 100%; accent-color: #ffd95e; margin: 10px 0 2px; }
 .modalCard .big { font-size: 26px; font-weight: 800; color: #ffd95e; }
-#propHand { position: absolute; left: 14px; bottom: 10px; display: flex; gap: 6px; z-index: 6; }
-#propHand .propCard { position: relative; width: 78px; padding: 5px 5px 6px; touch-action: none; }
-#propHand .propCard .art { font-size: 24px; padding: 5px 0 3px; }
+#propHand { position: absolute; left: 18px; bottom: 6px; display: flex; z-index: 6; }
+#propHand .propCard { position: relative; width: 74px; padding: 5px 5px 6px; touch-action: none; margin-left: -32px; transform-origin: 50% 118%; transform: rotate(var(--rot, 0deg)); transition: transform .18s ease, filter .2s ease; }
+#propHand .propCard:first-child { margin-left: 0; }
+#propHand .propCard .art { font-size: 22px; padding: 5px 0 3px; }
 #propHand .propCard .pname { font-size: 11.5px; margin-top: 3px; }
 #propHand .propCard .pdesc { font-size: 9.5px; min-height: 26px; line-height: 1.35; margin-top: 2px; }
-#propHand .propCard:nth-child(odd) { transform: rotate(-3deg); }
-#propHand .propCard:nth-child(even) { transform: rotate(2.5deg); }
-#propHand .propCard:hover { transform: translateY(-5px) rotate(0deg); }
+#propHand .propCard:nth-child(1) { --rot: -13deg; z-index: 1; }
+#propHand .propCard:nth-child(2) { --rot: -4.5deg; z-index: 2; }
+#propHand .propCard:nth-child(3) { --rot: 4.5deg; z-index: 3; }
+#propHand .propCard:nth-child(4) { --rot: 13deg; z-index: 4; }
+#propHand .propCard:hover { transform: rotate(0deg) scale(1.45) translateY(-12px); z-index: 30; }
 #propHand .propCard.dragging { transition: none; z-index: 40; }
 #propHand .propCard.gone { display: none; }
 #betZone.dropHot { border-color: #ffd95e; background: rgba(255,217,94,.10); }
