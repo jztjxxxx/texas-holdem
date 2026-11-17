@@ -1,4 +1,4 @@
-# Monad Poker · 德州扑克（黑客松备用版）
+# 德州扑克
 
 **▶ Play it now in your browser / 点开就能玩：https://jztjxxxx.github.io/texas-holdem/**
 
