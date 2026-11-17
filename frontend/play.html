@@ -5,6 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>德州扑克</title>
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<div class="modalOverlay" id="brokeModal">
+<div class="modalCard">
+<div id="giftBlock">
+<h3>💸 输光啦！</h3>
+<p>别灰心，赌场给你发一笔救济金，让你翻本。</p>
+<p class="big">+500 筹码</p>
+<p style="font-size:12.5px; color:#9fd8bb">救济金一辈子只发一次，下次没钱就得借了。</p>
+<button id="claimGiftBtn" style="margin-top:8px">领取 500</button>
+<button class="ghost modalLater" style="margin-top:8px">稍后再说</button>
+</div>
+<div id="loanBlock" style="display:none">
+<h3>🏦 没钱了？借一笔</h3>
+<p>救济金已经领过了。拖动拉条选你要借多少：</p>
+<div class="big"><span id="loanAmtText">1000</span> 筹码</div>
+<input type="range" id="loanSlider" min="100" max="20000" step="100" value="1000">
+<p id="loanRatePreview" style="font-size:12.5px; color:#9fd8bb"></p>
+<button id="confirmLoanBtn" style="margin-top:6px">确认借入</button>
+<button class="ghost modalLater" style="margin-top:6px">稍后再说</button>
+</div>
+</div>
+</div>
 <script>
 'use strict';
 /* poker-engine.js —— 单挑德州扑克引擎（练手/备用项目版，规则简化见 README）
@@ -322,6 +343,13 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 .propCard.flying.burst { opacity: 0; transform: translate(-50%,-50%) scale(1.7) rotate(7deg) !important; }
 .propSide { flex: 1; color: #b9ecd2; font-size: 13.5px; line-height: 1.65; }
 .propHint { color: #6f9c84; font-size: 12.5px; margin-top: 3px; }
+.modalOverlay { position: fixed; inset: 0; background: rgba(4,12,8,.74); display: none; align-items: center; justify-content: center; z-index: 60; padding: 16px; }
+.modalOverlay.show { display: flex; }
+.modalCard { background: linear-gradient(165deg, #14402c, #0a2016); border: 2px solid #ffd95e; border-radius: 16px; padding: 22px 20px; max-width: 350px; width: 100%; text-align: center; box-shadow: 0 18px 50px rgba(0,0,0,.65); }
+.modalCard h3 { margin: 0 0 6px; color: #ffd95e; font-size: 19px; }
+.modalCard p { color: #c9f2da; font-size: 14px; line-height: 1.65; margin: 6px 0; }
+.modalCard input[type=range] { width: 100%; accent-color: #ffd95e; margin: 10px 0 2px; }
+.modalCard .big { font-size: 26px; font-weight: 800; color: #ffd95e; }
 </style>
 </head>
 <body>
@@ -527,6 +555,7 @@ let streak = save.streak || 0;
 let unlocked = new Set(save.unlocked || []);
 let pending = save.pending || { games: 0, wins: 0, best: -1};
 let loan = save.loan || { p: 0, b: 0, bStreak: 0, trait: Math.random() < 0.5 ? 'steady' : 'bold' };
+loan.rescues = loan.rescues || 0;
 let meta = save.meta || { xp: 0, lastDaily: '', quests: [] };
 while (meta.quests.length < 3) meta.quests.push(newQuest(meta.quests.map(q => q.id)));
 function persist() { store.set('monadpoker_save', JSON.stringify({ stats, streak, unlocked: [...unlocked], pending, loan, meta })); }
@@ -717,7 +746,7 @@ banner('🎉 成就解锁：' + a.name);
 
 function newHand() {
 const brain = botBrain();
-if (playerStack < 20) { log('你的筹码不够下盲注了！去借贷区借一笔继续打，或者点“重开整场”。' + (brain.lines.length ? '\n' + brain.lines.join('\n') : '')); render(); return; }
+if (playerStack < 20) { log('💸 你的筹码不够下盲注了。' + (brain.lines.length ? '\n' + brain.lines.join('\n') : '')); render(); openBrokeModal(); return; }
 if (botStack < 20) { log('机器人借不到钱了（负债到顶），点“重开整场”吧。'); render(); return; }
 hand = new E.PokerHand({ playerStack, botStack, rng: Math.random, botAggro: brain.aggro });
 prop = PROPS[Math.floor(Math.random() * PROPS.length)];
@@ -803,7 +832,7 @@ if (r.botBluffWin) { talk(pick(TALK.bluffCaught));}
 else if (r.winner === 'player') talk(r.playerScore && r.playerScore[0] >= 5? pick(TALK.playerBig): pick(TALK.botLose));
 else if (r.winner === 'bot' &&!r.byFold) talk(pick(TALK.botWin));
 log([msg].concat(notes).join('\n'));
-if (playerStack < 20) log($('log').textContent + '\n你的筹码不够下盲注了，去借贷区借一笔继续打，或者点“重开整场”。');
+if (playerStack < 20) log($('log').textContent + '\n你的筹码不够下盲注了，点“下一手”会弹出救济金 / 借贷窗口。');
 else if (botStack < 20) log($('log').textContent + '\n机器人筹码见底了，下一手它会自己借钱续命。');
 }
 render();
@@ -856,7 +885,32 @@ function repay(amount) { if (hand && hand.phase !== 'over') return; const amt = 
 document.querySelectorAll('.loanB').forEach(btn => btn.addEventListener('click', () => borrow(parseInt(btn.dataset.amt, 10))));
 document.querySelectorAll('.loanR').forEach(btn => btn.addEventListener('click', () => repay(parseInt(btn.dataset.amt, 10))));
 $('repayAllBtn').addEventListener('click', () => repay(loan.p));
-window.__loan = { borrow, repay, rateFor, applyInterest, levelOf, botBrain, get: () => ({ loan, meta, playerStack, botStack }) };
+function openBrokeModal() {
+const gift = loan.rescues <= 0;
+$('giftBlock').style.display = gift ? '' : 'none';
+$('loanBlock').style.display = gift ? 'none' : '';
+if (!gift) {
+const maxAmt = LOAN_CAP - loan.p;
+const slider = $('loanSlider');
+slider.max = Math.max(100, maxAmt);
+slider.value = Math.min(1000, Math.max(100, maxAmt));
+slider.disabled = maxAmt < 100;
+$('confirmLoanBtn').disabled = maxAmt < 100;
+updateLoanPreview();
+}
+$('brokeModal').classList.add('show');
+}
+function closeBrokeModal() { $('brokeModal').classList.remove('show'); }
+function updateLoanPreview() {
+const amt = parseInt($('loanSlider').value, 10) || 0;
+$('loanAmtText').textContent = amt;
+$('loanRatePreview').textContent = '借完负债 ' + (loan.p + amt) + '，利率 ' + (rateFor(loan.p + amt) * 100) + '%/手（每手结算扣利息）';
+}
+$('loanSlider').addEventListener('input', updateLoanPreview);
+$('claimGiftBtn').addEventListener('click', () => { loan.rescues = 1; playerStack += 500; persist(); closeBrokeModal(); banner('🎁 救济金 +500 到账，省着点花！'); render(); });
+$('confirmLoanBtn').addEventListener('click', () => { const amt = parseInt($('loanSlider').value, 10) || 0; if (amt <= 0) return; loan.p += amt; playerStack += amt; persist(); closeBrokeModal(); banner('🏦 借入 ' + amt + '，负债 ' + loan.p + '，利率 ' + (rateFor(loan.p) * 100) + '%/手'); render(); });
+document.querySelectorAll('.modalLater').forEach(b => b.addEventListener('click', closeBrokeModal));
+window.__loan = { borrow, repay, rateFor, applyInterest, levelOf, botBrain, openBrokeModal, closeBrokeModal, get: () => ({ loan, meta, playerStack, botStack }) };
 $('resetBtn').addEventListener('click', () => { if (dealTimer) { clearInterval(dealTimer); dealTimer = null; } dealing = false; animLock = false; flipFrom = 99; revealFlip = false; playerStack = 1000; botStack = 1000; hand = null; loan.p = 0; loan.b = 0; loan.bStreak = 0; persist(); log('已重开整场，双方筹码回 1000，双方债务一笔勾销。战绩、任务和等级保留。'); render();});
 function flyPropCard(done) {
 const card = $('propCard'); const table = document.querySelector('.table');
