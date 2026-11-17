@@ -15,7 +15,14 @@ const { JSDOM } = require('jsdom');
   console.log('prop shown:', $('propDesc').textContent.includes('道具卡'));
   // Use the prop (whatever it is) to exercise that path
   await new Promise(r => setTimeout(r, 1600));
-  if (!$('propBtn').disabled) { $('propBtn').click(); console.log('prop used ok, btn text:', $('propBtn').textContent); }
+  if (!$('propCard').className.includes('disabled')) {
+    $('propCard').click();
+    await new Promise(r => setTimeout(r, 120));
+    const flyingSeen = !!doc.querySelector('.propCard.flying');
+    await new Promise(r => setTimeout(r, 1300));
+    console.log('prop card played, flying seen:', flyingSeen, '| card used:', $('propCard').className.includes('used'), '| stamp:', $('propStamp').style.display !== 'none');
+    if (!flyingSeen || !$('propCard').className.includes('used')) { console.log('FRONTEND TEST FAIL (prop card)'); process.exit(1); }
+  }
   let steps = 0, ended = false;
   while (steps++ < 160) {
     if ($('nextBtn').style.display !== 'none' && steps > 1) { ended = true; break; }

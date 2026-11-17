@@ -78,6 +78,24 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 .quest { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: #c9f2da; padding: 5px 0; border-bottom: 1px dashed #234534; }
 .quest:last-child { border-bottom: none; }
 .loanB, .loanR { margin: 2px 2px 2px 0; }
+.table { position: relative; }
+.propArea { display: flex; gap: 14px; align-items: center; margin-top: 14px; }
+.propCard { position: relative; width: 118px; flex-shrink: 0; border-radius: 12px; background: linear-gradient(160deg, #1d3b2e, #0b1f16); border: 2px solid #ffd95e; padding: 8px 8px 9px; cursor: pointer; box-shadow: 0 6px 16px rgba(0,0,0,.5); transition: transform .15s ease, filter .2s ease; }
+.propCard:hover { transform: translateY(-4px) rotate(-1.2deg); }
+.propCard .art { font-size: 38px; text-align: center; padding: 9px 0 7px; background: radial-gradient(circle at 50% 35%, rgba(255,217,94,.28), rgba(255,255,255,.04) 70%); border-radius: 8px; }
+.propCard .pname { font-weight: 800; color: #ffd95e; text-align: center; margin-top: 6px; font-size: 14px; }
+.propCard .pdesc { font-size: 11px; color: #b9ecd2; text-align: center; line-height: 1.45; margin-top: 3px; min-height: 32px; }
+.propCard.prop-swap { border-color: #c792ff; } .propCard.prop-swap .pname { color: #c792ff; }
+.propCard.prop-double { border-color: #ff9d5c; } .propCard.prop-double .pname { color: #ff9d5c; }
+.propCard.prop-shield { border-color: #7cc7ff; } .propCard.prop-shield .pname { color: #7cc7ff; }
+.propCard.disabled { opacity: .5; pointer-events: none; }
+.propCard.used { filter: grayscale(1) brightness(.55); pointer-events: none; }
+.propCard .stamp { position: absolute; top: 46%; left: 50%; transform: translate(-50%,-50%) rotate(-14deg); border: 2px solid #ff7b7b; color: #ff7b7b; padding: 2px 9px; border-radius: 6px; font-weight: 800; font-size: 14px; background: rgba(24,8,8,.6); white-space: nowrap; }
+.propCard.flying { position: absolute; z-index: 30; margin: 0; pointer-events: none; box-shadow: 0 0 36px rgba(255,217,94,.85); transition: left .65s cubic-bezier(.3,.7,.3,1), top .65s cubic-bezier(.3,.7,.3,1), transform .65s cubic-bezier(.3,.7,.3,1), opacity .3s ease; }
+.propCard.flying.land { transform: translate(-50%,-50%) rotateY(360deg) scale(1.28) !important; }
+.propCard.flying.burst { opacity: 0; transform: translate(-50%,-50%) scale(1.7) rotate(7deg) !important; }
+.propSide { flex: 1; color: #b9ecd2; font-size: 13.5px; line-height: 1.65; }
+.propHint { color: #6f9c84; font-size: 12.5px; margin-top: 3px; }
 </style>
 </head>
 <body>
@@ -93,7 +111,7 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 <div id="botTalk"><span class="bubble">坐下吧，我让你先看两张牌。</span></div>
 <div id="deck" class="deck">🎴 荷 官 🎴</div>
 <div class="cards" id="botCards" style="margin-top:10px"></div>
-<div><span class="pot">奖池 <span id="pot">0</span> · <span id="streetName">翻前</span></span></div>
+<div><span class="pot">奖池 <span id="pot">0</span> · <span id="streetName">翻前</span></span><span id="potToken" style="color:#ffd95e; font-weight:700"></span></div>
 <div class="cards" id="community"></div>
 <div id="betZone"><div class="betLabel">🎯 你的下注区 · 点的筹码会掉落在这里</div><div id="betPile"></div></div>
 <div class="cards" id="playerCards" style="margin-top:8px"></div>
@@ -122,10 +140,17 @@ aside.hint { width: 272px; flex-shrink: 0; background: #10231b; border: 1px soli
 </div>
 <div class="raiseInfo">已选加注：+<span id="raiseAmtVal">40</span> · 点圆筹码往上加，攒好按“加注”按钮打出去</div>
 </div>
-<div class="prop" style="margin-top:13px">
-<span class="icon" id="propIcon">🎴</span>
-<span style="flex:1; min-width:200px; font-size:13.5px; color:#b9ecd2" id="propDesc">道具卡：本手发牌后抽一张</span>
-<button id="propBtn" class="ghost" disabled>使用道具</button>
+<div class="propArea">
+<div id="propCard" class="propCard disabled">
+<div class="art" id="propIcon">🎴</div>
+<div class="pname" id="propName">道具卡</div>
+<div class="pdesc" id="propCardDesc">发牌后抽一张</div>
+<div class="stamp" id="propStamp" style="display:none">已打出</div>
+</div>
+<div class="propSide">
+<div id="propDesc">道具卡：本手发牌后抽一张，点卡牌打出去。</div>
+<div class="propHint">👆 点左边这张实体卡打出去，卡会飞到牌桌中央生效，每手限用一次。</div>
+</div>
 </div>
 </div>
 
@@ -286,6 +311,7 @@ const todayStr = new Date().toLocaleDateString('en-CA');
 if (meta.lastDaily !== todayStr) { meta.lastDaily = todayStr; playerStack += 200; setTimeout(() => banner('🎁 每日登录奖励 +200 筹码，祝今天手气爆棚！'), 700); persist(); }
 let hand = null, prop = null, propUsed = false, peekOn = false, settled = false, playerWentAllIn = false;
 let dealing = false, dealStep = 0, dealTimer = null, animLock = false, flipFrom = 99, revealFlip = false;
+let peekFlip = false, swapFlip = false;
 let raiseAmt = 40;
 
 function cardHtml(c, faceDown, cls) {
@@ -395,14 +421,14 @@ const playerShown = !hand ? 0 : (dealing ? (dealStep >= 4 ? 2 : dealStep >= 2 ? 
 $('botCards').innerHTML = [0, 1].map(i => {
 if (!hand || i >= botShown) return '<div class="card empty">·</div>';
 const justDealt = dealing && ((dealStep === 1 && i === 0) || (dealStep === 3 && i === 1));
-return cardHtml(hand.botHole[i], !(showBot || (peekOn && i === 0)), justDealt ? 'deal' : (revealFlip && showBot ? 'flip' : ''));
+return cardHtml(hand.botHole[i], !(showBot || (peekOn && i === 0)), justDealt ? 'deal' : ((peekFlip && peekOn && i === 0) || (revealFlip && showBot) ? 'flip' : ''));
 }).join('');
 $('deck').className = 'deck' + (dealing ? ' dealing' : '');
 $('community').innerHTML = [0, 1, 2, 3, 4].map(i => hand && hand.community[i]? cardHtml(hand.community[i], false, i >= flipFrom ? 'flip' : ''): cardHtml(null)).join('');
 $('playerCards').innerHTML = [0, 1].map(i => {
 if (!hand || i >= playerShown) return '<div class="card empty">·</div>';
 const justDealt = dealing && ((dealStep === 2 && i === 0) || (dealStep === 4 && i === 1));
-return cardHtml(hand.playerHole[i], false, justDealt ? 'flip' : '');
+return cardHtml(hand.playerHole[i], false, justDealt || (swapFlip && i === 1) ? 'flip' : '');
 }).join('');
 $('botHandName').textContent = hand && hand.phase === 'over' && hand.result &&!hand.result.byFold? ' · ' + hand.result.botHand: '';
 $('playerHandName').textContent = hand && hand.phase === 'over' && hand.result &&!hand.result.byFold? ' · 你是' + hand.result.playerHand: '';
@@ -428,7 +454,9 @@ raiseAmt = Math.max(10, Math.min(raiseAmt, maxBy));
 $('raiseAmtVal').textContent = raiseAmt;
 $('raiseBtn').textContent = raiseAmt >= maxBy ? '全下 +' + raiseAmt + '！' : '加注 +' + raiseAmt;
 }
-$('propBtn').disabled = !(inHand && prop && !propUsed) || animLock || dealing;
+$('propCard').className = 'propCard prop-' + (prop ? prop.id : 'none') + (propUsed ? ' used' : '') + ((!(inHand && prop && !propUsed) || animLock || dealing) ? ' disabled' : '');
+$('propStamp').style.display = propUsed ? '' : 'none';
+$('potToken').textContent = propUsed && prop ? (prop.id === 'double' ? ' · ✖️2 双倍生效中' : prop.id === 'shield' ? ' · 🛡️ 护盾生效中' : '') : '';
 $('statGames').textContent = stats.games;
 $('statWins').textContent = stats.wins;
 $('statStreak').textContent = streak;
@@ -469,8 +497,9 @@ hand = new E.PokerHand({ playerStack, botStack, rng: Math.random, botAggro: brai
 prop = PROPS[Math.floor(Math.random() * PROPS.length)];
 propUsed = false; peekOn = false; settled = false; playerWentAllIn = false;
 $('propIcon').textContent = prop.icon;
-$('propDesc').textContent = '道具卡：' + prop.desc + '（每手限用一次）';
-$('propBtn').textContent = '使用道具';
+$('propName').textContent = prop.name;
+$('propCardDesc').textContent = prop.desc;
+$('propDesc').textContent = '道具卡【' + prop.name + '】：' + prop.desc + '。点左边这张实体卡打出去。';
 talk(pick(TALK.deal));
 log('第 ' + (stats.games + 1) + ' 手。你是小盲 10，机器人大盲 20，跟注 10 开始。抽到的道具卡：' + prop.name + '。荷官发牌中…' + (brain.lines.length ? '\n' + brain.lines.join('\n') : ''));
 raiseAmt = 40; clearPile(false);
@@ -603,15 +632,37 @@ document.querySelectorAll('.loanR').forEach(btn => btn.addEventListener('click',
 $('repayAllBtn').addEventListener('click', () => repay(loan.p));
 window.__loan = { borrow, repay, rateFor, applyInterest, levelOf, botBrain, get: () => ({ loan, meta, playerStack, botStack }) };
 $('resetBtn').addEventListener('click', () => { if (dealTimer) { clearInterval(dealTimer); dealTimer = null; } dealing = false; animLock = false; flipFrom = 99; revealFlip = false; playerStack = 1000; botStack = 1000; hand = null; loan.p = 0; loan.b = 0; loan.bStreak = 0; persist(); log('已重开整场，双方筹码回 1000，双方债务一笔勾销。战绩、任务和等级保留。'); render();});
-$('propBtn').addEventListener('click', () => {
-if (!hand ||!prop || propUsed) return;
-if (prop.id === 'peek') { peekOn = true; propUsed = true; talk('哼，你都看到我一张牌了，公平呢？'); log('👀 透视眼生效：机器人左边那张底牌已经翻开给你看。');}
-else if (prop.id === 'swap') { if (hand.swapPlayerCard()) { propUsed = true; log('🔄 乾坤大挪移生效：你的第二张底牌已经换掉。');} else { log('这手已经换过了。'); return;}}
+function flyPropCard(done) {
+const card = $('propCard'); const table = document.querySelector('.table');
+const cr = card.getBoundingClientRect(), tr = table.getBoundingClientRect();
+const fly = card.cloneNode(true);
+fly.removeAttribute('id');
+fly.className = 'propCard flying prop-' + prop.id;
+fly.style.left = (cr.left - tr.left) + 'px';
+fly.style.top = (cr.top - tr.top) + 'px';
+fly.style.width = cr.width + 'px';
+table.appendChild(fly);
+requestAnimationFrame(() => requestAnimationFrame(() => {
+fly.style.left = '50%'; fly.style.top = '46%';
+fly.classList.add('land');
+}));
+setTimeout(() => fly.classList.add('burst'), 720);
+setTimeout(() => { fly.remove(); done && done(); }, 1060);
+}
+function applyPropEffect() {
+if (prop.id === 'peek') { peekOn = true; propUsed = true; peekFlip = true; setTimeout(() => { peekFlip = false; }, 900); talk('哼，你都看到我一张牌了，公平呢？'); log('👀 透视眼生效：机器人左边那张底牌已经翻开给你看。');}
+else if (prop.id === 'swap') { if (hand.swapPlayerCard()) { propUsed = true; swapFlip = true; setTimeout(() => { swapFlip = false; }, 900); log('🔄 乾坤大挪移生效：你的第二张底牌已经换掉。');} else { log('这手已经换过了。'); return;}}
 else if (prop.id === 'double') { propUsed = true; log('✖️2 双倍卡已激活：本手赢家额外拿一份等同奖池的奖励。');}
 else if (prop.id === 'shield') { propUsed = true; log('🛡️ 护盾已激活：本手输了返还一半投入。');}
-$('propBtn').textContent = '已使用';
 render();
-});
+}
+function playPropCard() {
+if (!hand || hand.phase === 'over' || !prop || propUsed || dealing || animLock) return;
+animLock = true; render();
+blip(880);
+flyPropCard(() => { applyPropEffect(); animLock = false; render(); });
+}
+$('propCard').addEventListener('click', playPropCard);
 
 // ---------- 战绩上链（可选，和留言墙同一套路） ----------
 const SCORE_ABI = ['function recordMatch(uint256 games, uint256 wins, uint8 bestHandRank)'];
