@@ -44,7 +44,6 @@
 <p>🤖 机器人阿莫：听到了，三遍都喊完了，够惨，我确认。</p>
 <button id="botConfirmBtn">机器人确认：债务清零，离桌</button>
 </div>
-<button class="ghost" id="workCancelBtn" style="margin-top:8px">算了，我再想想</button>
 </div>
 </div>
 <script>
@@ -991,7 +990,6 @@ banner('🚪 债务清零！你被机器人赶出了牌桌，筹码重置 1000�
 log('🧹 打工抵债完成：你喊了三遍“可恶 赔惨了”，机器人确认无误，债务清零，你被赶出牌桌（双方筹码重置 1000）。');
 render();
 });
-$('workCancelBtn').addEventListener('click', closeWorkModal);
 $('gateWorkBtn').addEventListener('click', () => { $('workGateModal').classList.remove('show'); openWorkModal(); });
 window.__loan = { borrow, repay, rateFor, applyInterest, levelOf, botBrain, openBrokeModal, closeBrokeModal, openWorkModal, closeWorkModal, get: () => ({ loan, meta, playerStack, botStack }) };
 $('resetBtn').addEventListener('click', () => { if (dealTimer) { clearInterval(dealTimer); dealTimer = null; } dealing = false; animLock = false; flipFrom = 99; revealFlip = false; playerStack = 1000; botStack = 1000; hand = null; loan.p = 0; loan.b = 0; loan.bStreak = 0; meta.propInv = freshPropInv(); persist(); log('已重开整场，双方筹码回 1000，双方债务一笔勾销，道具卡补满全套四张。战绩、任务和等级保留。'); render();});
